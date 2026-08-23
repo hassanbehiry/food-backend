@@ -1,1 +1,14 @@
-services: {}
+services:
+  postgres:
+    image: 'postgres:17-alpine'
+    environment:
+      - 'POSTGRES_DB=wajba'
+      - 'POSTGRES_USER=wajba'
+      - 'POSTGRES_PASSWORD=wajba'
+    ports:
+      - '5432:5432'
+    volumes:
+      - 'postgres-data:/var/lib/postgresql/data'
+
+volumes:
+  postgres-data:
