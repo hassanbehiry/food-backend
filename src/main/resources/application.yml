@@ -1,0 +1,23 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: user-backend
+  datasource:
+    url: jdbc:postgresql://localhost:5432/food_delivery_db
+    username: ${DB_USERNAME:postgres}
+    password: ${DB_PASSWORD:postgres}
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: true
+    open-in-view: false
+
+app:
+  jwt:
+    secret: ${JWT_SECRET:CHANGE_THIS_TO_A_LONG_RANDOM_SECRET_AT_LEAST_256_BITS}
+    expiration-ms: ${JWT_EXPIRATION_MS:86400000} # 24h
