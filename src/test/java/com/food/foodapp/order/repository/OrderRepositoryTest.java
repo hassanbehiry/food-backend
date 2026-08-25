@@ -97,6 +97,19 @@ class OrderRepositoryTest {
         }).isInstanceOf(ConstraintViolationException.class);
     }
 
+    @Test
+    void findByIdAndRestaurantIdWithItems_isEmpty_whenOrderBelongsToADifferentRestaurant() {
+        User customer = persistUser("owner-scoping-" + System.nanoTime() + "@example.com");
+        Restaurant restaurant = persistRestaurant("Pizza Place");
+        Restaurant otherRestaurant = persistRestaurant("Burger Place");
+        Order order = persistOrder(customer, restaurant);
+
+        assertThat(orderRepository.findByIdAndRestaurantIdWithItems(order.getId(), otherRestaurant.getId()))
+                .isEmpty();
+        assertThat(orderRepository.findByIdAndRestaurantIdWithItems(order.getId(), restaurant.getId()))
+                .isPresent();
+    }
+
     private User persistUser(String email) {
         User user = new User();
         user.setName("Order Owner");
@@ -155,7 +168,7 @@ class OrderRepositoryTest {
         order.setDiscount(BigDecimal.ZERO);
         order.setTotal(BigDecimal.valueOf(110));
         order.setPaymentMethod(PaymentMethod.CASH_ON_DELIVERY);
-        order.setStatus(OrderStatus.PENDING);
+        order.setStatus(OrderStatus.NEW);
         entityManager.persist(order);
         entityManager.flush();
         return order;
