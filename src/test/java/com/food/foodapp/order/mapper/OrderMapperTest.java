@@ -6,6 +6,7 @@ import com.food.foodapp.cart.entity.CartItem;
 import com.food.foodapp.menu.entity.MenuItem;
 import com.food.foodapp.order.dto.CheckoutResponse;
 import com.food.foodapp.order.dto.OrderResponse;
+import com.food.foodapp.order.dto.OrderSummaryResponse;
 import com.food.foodapp.order.dto.OrderTrackingResponse;
 import com.food.foodapp.order.dto.OwnerDashboardResponse;
 import com.food.foodapp.order.dto.OwnerOrderResponse;
@@ -125,6 +126,32 @@ class OrderMapperTest {
         assertThat(response.getCouponCode()).isEqualTo("SAVE10");
         assertThat(response.getDiscount()).isEqualByComparingTo(BigDecimal.TEN);
         assertThat(response.getStatus()).isEqualTo(OrderStatus.NEW);
+    }
+
+    @Test
+    void toSummary_includesRestaurantNameAndGivenItemCount() {
+        Restaurant restaurant = new Restaurant();
+        restaurant.setId(5L);
+        restaurant.setName("Pizza Place");
+
+        Order order = new Order();
+        order.setId(700L);
+        order.setOrderNumber("ORD-20260825-000001");
+        order.setRestaurant(restaurant);
+        order.setTotal(BigDecimal.valueOf(112));
+        order.setStatus(OrderStatus.DELIVERED);
+        order.setCreatedAt(LocalDateTime.of(2026, 8, 25, 12, 0));
+
+        OrderSummaryResponse response = OrderMapper.toSummary(order, 3L);
+
+        assertThat(response.getId()).isEqualTo(700L);
+        assertThat(response.getOrderNumber()).isEqualTo("ORD-20260825-000001");
+        assertThat(response.getRestaurantId()).isEqualTo(5L);
+        assertThat(response.getRestaurantName()).isEqualTo("Pizza Place");
+        assertThat(response.getItemCount()).isEqualTo(3);
+        assertThat(response.getTotal()).isEqualByComparingTo(BigDecimal.valueOf(112));
+        assertThat(response.getStatus()).isEqualTo(OrderStatus.DELIVERED);
+        assertThat(response.getCreatedAt()).isEqualTo(LocalDateTime.of(2026, 8, 25, 12, 0));
     }
 
     @Test

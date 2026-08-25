@@ -7,6 +7,7 @@ import com.food.foodapp.cart.mapper.CartMapper;
 import com.food.foodapp.order.dto.CheckoutResponse;
 import com.food.foodapp.order.dto.OrderItemResponse;
 import com.food.foodapp.order.dto.OrderResponse;
+import com.food.foodapp.order.dto.OrderSummaryResponse;
 import com.food.foodapp.order.dto.OrderTrackingResponse;
 import com.food.foodapp.order.dto.OwnerDashboardResponse;
 import com.food.foodapp.order.dto.OwnerOrderResponse;
@@ -99,6 +100,20 @@ public final class OrderMapper {
                 .steps(steps)
                 .estimatedDeliveryAt(estimateDeliveryAt(order))
                 .statusUpdatedAt(order.getUpdatedAt())
+                .build();
+    }
+
+    /** One row of the customer's order-history table — see {@link OrderSummaryResponse}. */
+    public static OrderSummaryResponse toSummary(Order order, long itemCount) {
+        return OrderSummaryResponse.builder()
+                .id(order.getId())
+                .orderNumber(order.getOrderNumber())
+                .restaurantId(order.getRestaurant().getId())
+                .restaurantName(order.getRestaurant().getName())
+                .itemCount((int) itemCount)
+                .total(order.getTotal())
+                .status(order.getStatus())
+                .createdAt(order.getCreatedAt())
                 .build();
     }
 

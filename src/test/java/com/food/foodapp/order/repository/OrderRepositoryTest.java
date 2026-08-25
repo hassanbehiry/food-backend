@@ -21,10 +21,13 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 
 /**
  * Persistence-level checks for the order-item snapshot: the constraints that back the
@@ -35,6 +38,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 class OrderRepositoryTest {
+
+    /** A wide-open bound pair standing in for "no date filter" — {@code findByCustomerIdWithFilters} never accepts {@code null} here (see its javadoc). */
+    private static final LocalDateTime ANY_FROM_DATE = LocalDateTime.of(1970, 1, 1, 0, 0);
+    private static final LocalDateTime ANY_TO_DATE = LocalDateTime.of(9999, 12, 31, 23, 59, 59);
 
     @Autowired
     private TestEntityManager entityManager;
@@ -186,6 +193,103 @@ class OrderRepositoryTest {
         assertThat(orderRepository.countByRestaurantIdAndStatus(restaurant.getId(), OrderStatus.NEW)).isEqualTo(1);
         assertThat(orderRepository.countByRestaurantIdAndStatus(restaurant.getId(), OrderStatus.PREPARING))
                 .isEqualTo(1);
+    }
+
+    @Test
+    void findByCustomerIdWithFilters_isScopedToCustomer_andOrdersNewestFirst() {
+        User customer = persistUser("history-scope-" + System.nanoTime() + "@example.com");
+        User otherCustomer = persistUser("history-scope-other-" + System.nanoTime() + "@example.com");
+        Restaurant restaurant = persistRestaurant("Pizza Place");
+        Order older = persistOrder(customer, restaurant);
+        Order newer = persistOrder(customer, restaurant);
+        persistOrder(otherCustomer, restaurant);
+        entityManager.clear();
+
+        Page<Order> result = orderRepository.findByCustomerIdWithFilters(
+                customer.getId(), null, null, ANY_FROM_DATE, ANY_TO_DATE, PageRequest.of(0, 20));
+
+        assertThat(result.getTotalElements()).isEqualTo(2);
+        assertThat(result.getContent()).extracting(Order::getId).containsExactly(newer.getId(), older.getId());
+    }
+
+    @Test
+    void findByCustomerIdWithFilters_filtersByStatus_whenGiven() {
+        User customer = persistUser("history-status-" + System.nanoTime() + "@example.com");
+        Restaurant restaurant = persistRestaurant("Pizza Place");
+        persistOrder(customer, restaurant);
+        Order cancelled = persistOrder(customer, restaurant);
+        cancelled.setStatus(OrderStatus.CANCELLED);
+        entityManager.flush();
+        entityManager.clear();
+
+        Page<Order> result = orderRepository.findByCustomerIdWithFilters(
+                customer.getId(), OrderStatus.CANCELLED, null, ANY_FROM_DATE, ANY_TO_DATE, PageRequest.of(0, 20));
+
+        assertThat(result.getContent()).extracting(Order::getId).containsExactly(cancelled.getId());
+    }
+
+    @Test
+    void findByCustomerIdWithFilters_filtersByRestaurant_whenGiven() {
+        User customer = persistUser("history-restaurant-" + System.nanoTime() + "@example.com");
+        Restaurant restaurant = persistRestaurant("Pizza Place");
+        Restaurant otherRestaurant = persistRestaurant("Burger Place");
+        Order atRestaurant = persistOrder(customer, restaurant);
+        persistOrder(customer, otherRestaurant);
+        entityManager.clear();
+
+        Page<Order> result = orderRepository.findByCustomerIdWithFilters(
+                customer.getId(), null, restaurant.getId(), ANY_FROM_DATE, ANY_TO_DATE, PageRequest.of(0, 20));
+
+        assertThat(result.getContent()).extracting(Order::getId).containsExactly(atRestaurant.getId());
+    }
+
+    @Test
+    void findByCustomerIdWithFilters_filtersByDateRange_asAnInclusiveWholeDaySpan() {
+        User customer = persistUser("history-date-" + System.nanoTime() + "@example.com");
+        Restaurant restaurant = persistRestaurant("Pizza Place");
+        Order inRange = persistOrder(customer, restaurant);
+        setCreatedAt(inRange, LocalDateTime.of(2026, 8, 10, 12, 0));
+        Order beforeRange = persistOrder(customer, restaurant);
+        setCreatedAt(beforeRange, LocalDateTime.of(2026, 8, 9, 23, 59));
+        Order afterRange = persistOrder(customer, restaurant);
+        setCreatedAt(afterRange, LocalDateTime.of(2026, 8, 11, 0, 0));
+        entityManager.clear();
+
+        Page<Order> result = orderRepository.findByCustomerIdWithFilters(customer.getId(), null, null,
+                LocalDateTime.of(2026, 8, 10, 0, 0), LocalDateTime.of(2026, 8, 11, 0, 0), PageRequest.of(0, 20));
+
+        assertThat(result.getContent()).extracting(Order::getId).containsExactly(inRange.getId());
+    }
+
+    @Test
+    void sumItemQuantitiesByOrderIds_sumsQuantityAcrossLines_andOmitsOrdersWithNoMatchingLines() {
+        User customer = persistUser("history-items-" + System.nanoTime() + "@example.com");
+        Restaurant restaurant = persistRestaurant("Pizza Place");
+        MenuCategory category = persistCategory(restaurant);
+        MenuItem menuItem = persistMenuItem(restaurant, category, "Pizza", BigDecimal.valueOf(50));
+        Order order = persistOrder(customer, restaurant);
+        entityManager.persist(new OrderItem(order, menuItem.getId(), menuItem.getName(), null,
+                menuItem.getPrice(), 2, menuItem.getPrice().multiply(BigDecimal.valueOf(2))));
+        entityManager.persist(new OrderItem(order, menuItem.getId(), menuItem.getName(), null,
+                menuItem.getPrice(), 3, menuItem.getPrice().multiply(BigDecimal.valueOf(3))));
+        Order orderWithNoItems = persistOrder(customer, restaurant);
+        entityManager.flush();
+        entityManager.clear();
+
+        List<OrderItemCount> counts = orderRepository.sumItemQuantitiesByOrderIds(
+                List.of(order.getId(), orderWithNoItems.getId()));
+
+        assertThat(counts).extracting(OrderItemCount::orderId, OrderItemCount::itemCount)
+                .containsExactly(tuple(order.getId(), 5L));
+    }
+
+    /** {@code createdAt} is {@code @CreationTimestamp}-generated, so date-range tests must overwrite it directly. */
+    private void setCreatedAt(Order order, LocalDateTime createdAt) {
+        entityManager.getEntityManager()
+                .createNativeQuery("UPDATE orders SET created_at = :createdAt WHERE id = :id")
+                .setParameter("createdAt", createdAt)
+                .setParameter("id", order.getId())
+                .executeUpdate();
     }
 
     private User persistUser(String email) {

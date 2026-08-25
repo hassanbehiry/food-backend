@@ -24,6 +24,7 @@ import com.food.foodapp.coupon.service.CouponService;
 import com.food.foodapp.menu.entity.MenuItem;
 import com.food.foodapp.order.dto.CheckoutRequest;
 import com.food.foodapp.order.dto.CheckoutResponse;
+import com.food.foodapp.order.dto.OrderListResponse;
 import com.food.foodapp.order.dto.OrderResponse;
 import com.food.foodapp.order.dto.OrderTrackingResponse;
 import com.food.foodapp.order.dto.OwnerDashboardResponse;
@@ -32,6 +33,7 @@ import com.food.foodapp.order.dto.OwnerOrderResponse;
 import com.food.foodapp.order.entity.Order;
 import com.food.foodapp.order.entity.OrderStatus;
 import com.food.foodapp.order.entity.PaymentMethod;
+import com.food.foodapp.order.repository.OrderItemCount;
 import com.food.foodapp.order.repository.OrderRepository;
 import com.food.foodapp.restaurant.entity.Restaurant;
 import com.food.foodapp.restaurant.entity.RestaurantApprovalStatus;
@@ -46,6 +48,7 @@ import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -350,6 +353,85 @@ class OrderServiceTest {
         when(orderRepository.findByIdAndCustomerIdWithItems(700L, 1L)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> orderService.trackOrder(700L)).isInstanceOf(OrderNotFoundException.class);
+    }
+
+    @Test
+    void listOrdersForCustomer_returnsPaginatedSummaries_withItemCounts() {
+        Order order = existingOrder(700L, OrderStatus.NEW);
+        when(orderRepository.findByCustomerIdWithFilters(
+                eq(1L), isNull(), isNull(), any(LocalDateTime.class), any(LocalDateTime.class), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(order), Pageable.ofSize(20), 1));
+        when(orderRepository.sumItemQuantitiesByOrderIds(List.of(700L)))
+                .thenReturn(List.of(new OrderItemCount(700L, 3L)));
+
+        OrderListResponse response = orderService.listOrdersForCustomer(null, null, null, null, 0, 20);
+
+        assertThat(response.getTotalElements()).isEqualTo(1);
+        assertThat(response.getOrders()).hasSize(1);
+        assertThat(response.getOrders().get(0).getId()).isEqualTo(700L);
+        assertThat(response.getOrders().get(0).getRestaurantName()).isEqualTo("Pizza Place");
+        assertThat(response.getOrders().get(0).getItemCount()).isEqualTo(3);
+    }
+
+    @Test
+    void listOrdersForCustomer_defaultsItemCountToZero_whenNoMatchingLinesFound() {
+        Order order = existingOrder(700L, OrderStatus.NEW);
+        when(orderRepository.findByCustomerIdWithFilters(
+                eq(1L), isNull(), isNull(), any(LocalDateTime.class), any(LocalDateTime.class), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(order), Pageable.ofSize(20), 1));
+        when(orderRepository.sumItemQuantitiesByOrderIds(List.of(700L))).thenReturn(List.of());
+
+        OrderListResponse response = orderService.listOrdersForCustomer(null, null, null, null, 0, 20);
+
+        assertThat(response.getOrders().get(0).getItemCount()).isZero();
+    }
+
+    @Test
+    void listOrdersForCustomer_allowsCancelledAsFilterValue_unlikeTheOwnerListing() {
+        when(orderRepository.findByCustomerIdWithFilters(
+                eq(1L), eq(OrderStatus.CANCELLED), isNull(), any(LocalDateTime.class), any(LocalDateTime.class),
+                any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(), Pageable.ofSize(20), 0));
+
+        orderService.listOrdersForCustomer("cancelled", null, null, null, 0, 20);
+
+        verify(orderRepository).findByCustomerIdWithFilters(eq(1L), eq(OrderStatus.CANCELLED), isNull(),
+                any(LocalDateTime.class), any(LocalDateTime.class), any(Pageable.class));
+    }
+
+    @Test
+    void listOrdersForCustomer_passesRestaurantIdAndInclusiveDateRangeThrough() {
+        when(orderRepository.findByCustomerIdWithFilters(
+                eq(1L), isNull(), eq(5L), any(LocalDateTime.class), any(LocalDateTime.class), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(), Pageable.ofSize(20), 0));
+
+        orderService.listOrdersForCustomer(null, 5L, LocalDate.of(2026, 8, 1), LocalDate.of(2026, 8, 25), 0, 20);
+
+        verify(orderRepository).findByCustomerIdWithFilters(eq(1L), isNull(), eq(5L),
+                eq(LocalDateTime.of(2026, 8, 1, 0, 0)), eq(LocalDateTime.of(2026, 8, 26, 0, 0)), any(Pageable.class));
+    }
+
+    @Test
+    void listOrdersForCustomer_rejectsUnknownStatusValue() {
+        assertThatThrownBy(() -> orderService.listOrdersForCustomer("SHIPPED", null, null, null, 0, 20))
+                .isInstanceOf(InvalidRequestParameterException.class);
+    }
+
+    @Test
+    void listOrdersForCustomer_rejectsFromDateAfterToDate() {
+        assertThatThrownBy(() -> orderService.listOrdersForCustomer(
+                null, null, LocalDate.of(2026, 8, 25), LocalDate.of(2026, 8, 1), 0, 20))
+                .isInstanceOf(InvalidRequestParameterException.class);
+    }
+
+    @Test
+    void listOrdersForCustomer_rejectsInvalidPagination() {
+        assertThatThrownBy(() -> orderService.listOrdersForCustomer(null, null, null, null, -1, 20))
+                .isInstanceOf(InvalidRequestParameterException.class);
+        assertThatThrownBy(() -> orderService.listOrdersForCustomer(null, null, null, null, 0, 0))
+                .isInstanceOf(InvalidRequestParameterException.class);
+        assertThatThrownBy(() -> orderService.listOrdersForCustomer(null, null, null, null, 0, 51))
+                .isInstanceOf(InvalidRequestParameterException.class);
     }
 
     @Test
