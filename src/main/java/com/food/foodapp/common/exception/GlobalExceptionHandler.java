@@ -140,6 +140,24 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
     }
 
+    @ExceptionHandler(CouponNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleCouponNotFound(CouponNotFoundException ex) {
+        ErrorResponse error = ErrorResponse.builder()
+                .status(HttpStatus.NOT_FOUND.value())
+                .message(ex.getMessage())
+                .build();
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
+    }
+
+    @ExceptionHandler(CouponNotApplicableException.class)
+    public ResponseEntity<ErrorResponse> handleCouponNotApplicable(CouponNotApplicableException ex) {
+        ErrorResponse error = ErrorResponse.builder()
+                .status(HttpStatus.CONFLICT.value())
+                .message(ex.getMessage())
+                .build();
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
+    }
+
     @ExceptionHandler(InvalidRequestParameterException.class)
     public ResponseEntity<ErrorResponse> handleInvalidRequestParameter(InvalidRequestParameterException ex) {
         ErrorResponse error = ErrorResponse.builder()
