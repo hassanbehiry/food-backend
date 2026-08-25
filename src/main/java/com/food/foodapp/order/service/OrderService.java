@@ -15,6 +15,7 @@ import com.food.foodapp.common.exception.InvalidRequestParameterException;
 import com.food.foodapp.common.exception.MenuItemUnavailableException;
 import com.food.foodapp.common.exception.OrderNotFoundException;
 import com.food.foodapp.common.exception.RestaurantNotFoundException;
+import com.food.foodapp.menu.entity.MenuItem;
 import com.food.foodapp.order.dto.CheckoutRequest;
 import com.food.foodapp.order.dto.CheckoutResponse;
 import com.food.foodapp.order.dto.OrderResponse;
@@ -185,14 +186,10 @@ public class OrderService {
         order.setStatus(OrderStatus.PENDING);
 
         for (CartItem cartItem : computation.items()) {
-            OrderItem orderItem = new OrderItem();
-            orderItem.setOrder(order);
-            orderItem.setMenuItemId(cartItem.getMenuItem().getId());
-            orderItem.setName(cartItem.getMenuItem().getName());
-            orderItem.setUnitPrice(cartItem.getMenuItem().getPrice());
-            orderItem.setQuantity(cartItem.getQuantity());
-            orderItem.setLineTotal(cartItem.getMenuItem().getPrice().multiply(BigDecimal.valueOf(cartItem.getQuantity())));
-            order.getItems().add(orderItem);
+            MenuItem menuItem = cartItem.getMenuItem();
+            BigDecimal lineTotal = menuItem.getPrice().multiply(BigDecimal.valueOf(cartItem.getQuantity()));
+            order.getItems().add(new OrderItem(order, menuItem.getId(), menuItem.getName(), menuItem.getImageUrl(),
+                    menuItem.getPrice(), cartItem.getQuantity(), lineTotal));
         }
         return order;
     }

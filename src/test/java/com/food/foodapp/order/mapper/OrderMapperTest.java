@@ -71,13 +71,9 @@ class OrderMapperTest {
         order.setPaymentMethod(PaymentMethod.CASH_ON_DELIVERY);
         order.setStatus(OrderStatus.PENDING);
 
-        OrderItem item = new OrderItem();
+        OrderItem item = new OrderItem(order, 10L, "Pizza", "pizza.jpg", BigDecimal.valueOf(50), 2,
+                BigDecimal.valueOf(100));
         item.setId(1L);
-        item.setMenuItemId(10L);
-        item.setName("Pizza");
-        item.setUnitPrice(BigDecimal.valueOf(50));
-        item.setQuantity(2);
-        item.setLineTotal(BigDecimal.valueOf(100));
         order.setItems(List.of(item));
 
         OrderResponse response = OrderMapper.toResponse(order);
@@ -86,6 +82,8 @@ class OrderMapperTest {
         assertThat(response.getDeliveryAddress()).isEqualTo("Street 1، Cairo");
         assertThat(response.getItems()).hasSize(1);
         assertThat(response.getItems().get(0).getName()).isEqualTo("Pizza");
+        assertThat(response.getItems().get(0).getImg()).isEqualTo("pizza.jpg");
+        assertThat(response.getItems().get(0).getPrice()).isEqualByComparingTo(BigDecimal.valueOf(50));
         assertThat(response.getStatus()).isEqualTo(OrderStatus.PENDING);
     }
 }
