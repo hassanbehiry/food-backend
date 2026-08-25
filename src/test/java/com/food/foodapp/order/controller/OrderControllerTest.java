@@ -5,6 +5,8 @@ import com.food.foodapp.common.exception.InvalidOrderStatusTransitionException;
 import com.food.foodapp.common.exception.OrderNotFoundException;
 import com.food.foodapp.order.dto.OrderItemResponse;
 import com.food.foodapp.order.dto.OrderResponse;
+import com.food.foodapp.order.dto.OrderTrackingResponse;
+import com.food.foodapp.order.dto.TrackingStepResponse;
 import com.food.foodapp.order.entity.OrderStatus;
 import com.food.foodapp.order.entity.PaymentMethod;
 import com.food.foodapp.order.service.OrderService;
@@ -16,6 +18,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
@@ -37,14 +40,14 @@ class OrderControllerTest {
 
     @Test
     void placeOrder_returns201() throws Exception {
-        when(orderService.placeOrder(any())).thenReturn(order(700L, OrderStatus.PENDING));
+        when(orderService.placeOrder(any())).thenReturn(order(700L, OrderStatus.NEW));
 
         mockMvc.perform(post("/api/v1/orders")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"addressId\":50,\"paymentMethod\":\"CASH_ON_DELIVERY\"}"))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.orderNumber").value("ORD-20260825-000001"))
-                .andExpect(jsonPath("$.status").value("PENDING"));
+                .andExpect(jsonPath("$.status").value("NEW"));
     }
 
     @Test
@@ -67,7 +70,7 @@ class OrderControllerTest {
 
     @Test
     void getOrder_returnsOrder() throws Exception {
-        when(orderService.getOrder(700L)).thenReturn(order(700L, OrderStatus.PENDING));
+        when(orderService.getOrder(700L)).thenReturn(order(700L, OrderStatus.NEW));
 
         mockMvc.perform(get("/api/v1/orders/700"))
                 .andExpect(status().isOk())
@@ -79,6 +82,36 @@ class OrderControllerTest {
         when(orderService.getOrder(999L)).thenThrow(new OrderNotFoundException("Order not found: 999"));
 
         mockMvc.perform(get("/api/v1/orders/999"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void trackOrder_returnsTrackingInfo() throws Exception {
+        when(orderService.trackOrder(700L)).thenReturn(OrderTrackingResponse.builder()
+                .orderId(700L)
+                .orderNumber("ORD-20260825-000001")
+                .status(OrderStatus.PREPARING)
+                .steps(List.of(
+                        TrackingStepResponse.builder().status(OrderStatus.NEW).completed(true).current(false).build(),
+                        TrackingStepResponse.builder().status(OrderStatus.PREPARING).completed(true).current(true).build(),
+                        TrackingStepResponse.builder().status(OrderStatus.ON_THE_WAY).completed(false).current(false).build(),
+                        TrackingStepResponse.builder().status(OrderStatus.DELIVERED).completed(false).current(false).build()))
+                .estimatedDeliveryAt(LocalDateTime.of(2026, 8, 25, 13, 0))
+                .statusUpdatedAt(LocalDateTime.of(2026, 8, 25, 12, 30))
+                .build());
+
+        mockMvc.perform(get("/api/v1/orders/700/track"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("PREPARING"))
+                .andExpect(jsonPath("$.steps.length()").value(4))
+                .andExpect(jsonPath("$.steps[1].current").value(true));
+    }
+
+    @Test
+    void trackOrder_returns404_whenMissingOrNotOwned() throws Exception {
+        when(orderService.trackOrder(999L)).thenThrow(new OrderNotFoundException("Order not found: 999"));
+
+        mockMvc.perform(get("/api/v1/orders/999/track"))
                 .andExpect(status().isNotFound());
     }
 

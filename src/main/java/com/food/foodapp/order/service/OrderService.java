@@ -19,6 +19,7 @@ import com.food.foodapp.menu.entity.MenuItem;
 import com.food.foodapp.order.dto.CheckoutRequest;
 import com.food.foodapp.order.dto.CheckoutResponse;
 import com.food.foodapp.order.dto.OrderResponse;
+import com.food.foodapp.order.dto.OrderTrackingResponse;
 import com.food.foodapp.order.entity.Order;
 import com.food.foodapp.order.entity.OrderItem;
 import com.food.foodapp.order.entity.OrderStatus;
@@ -35,6 +36,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.ThreadLocalRandom;
 
 /**
@@ -60,6 +62,14 @@ import java.util.concurrent.ThreadLocalRandom;
 @Service
 @RequiredArgsConstructor
 public class OrderService {
+
+    /**
+     * Statuses an owner may explicitly request via {@link #updateOrderStatus}. {@code NEW} is
+     * the only-ever-initial status and {@code CONFIRMED} is an internal transition not exposed as
+     * its own dashboard tab (see {@link OrderStatus}), so neither is a valid explicit target here.
+     */
+    private static final Set<OrderStatus> OWNER_REQUESTABLE_STATUSES =
+            Set.of(OrderStatus.PREPARING, OrderStatus.ON_THE_WAY, OrderStatus.DELIVERED, OrderStatus.CANCELLED);
 
     private final CartRepository cartRepository;
     private final CartItemRepository cartItemRepository;
@@ -109,12 +119,60 @@ public class OrderService {
         return OrderMapper.toResponse(order);
     }
 
+    /** GET /orders/{id}/track — always reads live persisted status, never a cached/echoed value. */
+    @Transactional(readOnly = true)
+    public OrderTrackingResponse trackOrder(Long orderId) {
+        Long customerId = userContext.getCurrentUserId();
+        Order order = requireOwnedOrder(orderId, customerId);
+        return OrderMapper.toTracking(order);
+    }
+
+    /**
+     * The owner-driven counterpart to {@link #cancelOrder}: both route through the same
+     * {@link #transitionStatus} choke point so the legal-transition rules in {@link OrderStatus}
+     * are enforced in exactly one place regardless of who initiates the change.
+     * <p>
+     * Scoped to {@code restaurantId} rather than an authenticated owner — same temporary
+     * authorization gap {@code MenuItemService} already has (see {@code OwnerMenuItemController}),
+     * to be closed once owner authentication exists.
+     * <p>
+     * When a {@code NEW} order is asked to move straight to {@code PREPARING}, this advances it
+     * through {@code CONFIRMED} first, in the same transaction: the owner dashboard has only one
+     * action to take an order out of "New", so accepting it and starting to prepare it are the
+     * same request from the caller's point of view even though the state machine still passes
+     * through the intermediate status.
+     */
+    @Transactional
+    public OrderResponse updateOrderStatus(Long restaurantId, Long orderId, String rawStatus) {
+        Order order = orderRepository.findByIdAndRestaurantIdWithItems(orderId, restaurantId)
+                .orElseThrow(() -> new OrderNotFoundException("Order not found: " + orderId));
+        OrderStatus target = resolveOwnerTargetStatus(rawStatus);
+
+        if (order.getStatus() == OrderStatus.NEW && target == OrderStatus.PREPARING) {
+            transitionStatus(order, OrderStatus.CONFIRMED);
+        }
+        transitionStatus(order, target);
+
+        return OrderMapper.toResponse(order);
+    }
+
+    private OrderStatus resolveOwnerTargetStatus(String raw) {
+        OrderStatus target;
+        try {
+            target = OrderStatus.valueOf(raw == null ? "" : raw.trim().toUpperCase());
+        } catch (IllegalArgumentException e) {
+            throw new InvalidRequestParameterException("Invalid 'status' value: '" + raw + "'");
+        }
+        if (!OWNER_REQUESTABLE_STATUSES.contains(target)) {
+            throw new InvalidRequestParameterException(
+                    "Invalid 'status' value: '" + raw + "'. Allowed values: " + OWNER_REQUESTABLE_STATUSES);
+        }
+        return target;
+    }
+
     /**
      * The single point every order-status change routes through, so the legal-transition rules
      * in {@link OrderStatus} are enforced in one place regardless of who initiates the change.
-     * {@link #cancelOrder} is the only caller today; a future owner-driven status workflow
-     * (accept/prepare/dispatch/deliver) should call this same method rather than setting
-     * {@code status} directly.
      */
     private void transitionStatus(Order order, OrderStatus target) {
         if (!order.getStatus().canTransitionTo(target)) {
@@ -183,7 +241,7 @@ public class OrderService {
         order.setDiscount(computation.discount());
         order.setTotal(computation.total());
         order.setPaymentMethod(computation.paymentMethod());
-        order.setStatus(OrderStatus.PENDING);
+        order.setStatus(OrderStatus.NEW);
 
         for (CartItem cartItem : computation.items()) {
             MenuItem menuItem = cartItem.getMenuItem();

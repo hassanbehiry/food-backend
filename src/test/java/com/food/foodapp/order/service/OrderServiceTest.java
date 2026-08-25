@@ -20,6 +20,7 @@ import com.food.foodapp.menu.entity.MenuItem;
 import com.food.foodapp.order.dto.CheckoutRequest;
 import com.food.foodapp.order.dto.CheckoutResponse;
 import com.food.foodapp.order.dto.OrderResponse;
+import com.food.foodapp.order.dto.OrderTrackingResponse;
 import com.food.foodapp.order.entity.Order;
 import com.food.foodapp.order.entity.OrderStatus;
 import com.food.foodapp.order.entity.PaymentMethod;
@@ -33,6 +34,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -40,7 +42,9 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -71,7 +75,7 @@ class OrderServiceTest {
     void setUp() {
         orderService = new OrderService(cartRepository, cartItemRepository, addressRepository, userRepository,
                 orderRepository, userContext);
-        when(userContext.getCurrentUserId()).thenReturn(1L);
+        lenient().when(userContext.getCurrentUserId()).thenReturn(1L);
     }
 
     @Test
@@ -164,7 +168,7 @@ class OrderServiceTest {
 
         assertThat(response.getId()).isEqualTo(500L);
         assertThat(response.getOrderNumber()).startsWith("ORD-");
-        assertThat(response.getStatus()).isEqualTo(OrderStatus.PENDING);
+        assertThat(response.getStatus()).isEqualTo(OrderStatus.NEW);
         assertThat(response.getPaymentMethod()).isEqualTo(PaymentMethod.CASH_ON_DELIVERY);
         assertThat(response.getTotal()).isEqualByComparingTo(BigDecimal.valueOf(112));
         assertThat(response.getItems()).hasSize(1);
@@ -186,7 +190,7 @@ class OrderServiceTest {
 
     @Test
     void getOrder_returnsOrder_whenOwnedByCaller() {
-        Order order = existingOrder(700L, OrderStatus.PENDING);
+        Order order = existingOrder(700L, OrderStatus.NEW);
         when(orderRepository.findByIdAndCustomerIdWithItems(700L, 1L)).thenReturn(Optional.of(order));
 
         OrderResponse response = orderService.getOrder(700L);
@@ -203,7 +207,7 @@ class OrderServiceTest {
 
     @Test
     void cancelOrder_cancels_whenStillPending() {
-        Order order = existingOrder(700L, OrderStatus.PENDING);
+        Order order = existingOrder(700L, OrderStatus.NEW);
         when(orderRepository.findByIdAndCustomerIdWithItems(700L, 1L)).thenReturn(Optional.of(order));
 
         OrderResponse response = orderService.cancelOrder(700L);
@@ -237,6 +241,83 @@ class OrderServiceTest {
         when(orderRepository.findByIdAndCustomerIdWithItems(700L, 1L)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> orderService.cancelOrder(700L)).isInstanceOf(OrderNotFoundException.class);
+    }
+
+    @Test
+    void trackOrder_returnsTrackingResponse_whenOwnedByCaller() {
+        Order order = existingOrder(700L, OrderStatus.PREPARING);
+        when(orderRepository.findByIdAndCustomerIdWithItems(700L, 1L)).thenReturn(Optional.of(order));
+
+        OrderTrackingResponse response = orderService.trackOrder(700L);
+
+        assertThat(response.getOrderId()).isEqualTo(700L);
+        assertThat(response.getStatus()).isEqualTo(OrderStatus.PREPARING);
+    }
+
+    @Test
+    void trackOrder_throwsNotFound_whenNotOwnedByCaller() {
+        when(orderRepository.findByIdAndCustomerIdWithItems(700L, 1L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> orderService.trackOrder(700L)).isInstanceOf(OrderNotFoundException.class);
+    }
+
+    @Test
+    void updateOrderStatus_movesNewOrderStraightToPreparing_hoppingThroughConfirmed() {
+        Order order = existingOrder(700L, OrderStatus.NEW);
+        when(orderRepository.findByIdAndRestaurantIdWithItems(700L, 5L)).thenReturn(Optional.of(order));
+
+        OrderResponse response = orderService.updateOrderStatus(5L, 700L, "PREPARING");
+
+        assertThat(response.getStatus()).isEqualTo(OrderStatus.PREPARING);
+        verify(orderRepository, times(2)).save(order);
+    }
+
+    @Test
+    void updateOrderStatus_movesPreparingToOnTheWay_directly() {
+        Order order = existingOrder(700L, OrderStatus.PREPARING);
+        when(orderRepository.findByIdAndRestaurantIdWithItems(700L, 5L)).thenReturn(Optional.of(order));
+
+        OrderResponse response = orderService.updateOrderStatus(5L, 700L, "on_the_way");
+
+        assertThat(response.getStatus()).isEqualTo(OrderStatus.ON_THE_WAY);
+    }
+
+    @Test
+    void updateOrderStatus_rejectsIllegalTransition() {
+        Order order = existingOrder(700L, OrderStatus.NEW);
+        when(orderRepository.findByIdAndRestaurantIdWithItems(700L, 5L)).thenReturn(Optional.of(order));
+
+        assertThatThrownBy(() -> orderService.updateOrderStatus(5L, 700L, "DELIVERED"))
+                .isInstanceOf(InvalidOrderStatusTransitionException.class);
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.NEW);
+    }
+
+    @Test
+    void updateOrderStatus_rejectsUnknownStatusValue() {
+        Order order = existingOrder(700L, OrderStatus.NEW);
+        when(orderRepository.findByIdAndRestaurantIdWithItems(700L, 5L)).thenReturn(Optional.of(order));
+
+        assertThatThrownBy(() -> orderService.updateOrderStatus(5L, 700L, "SHIPPED"))
+                .isInstanceOf(InvalidRequestParameterException.class);
+    }
+
+    @Test
+    void updateOrderStatus_rejectsNewAndConfirmedAsExplicitOwnerTargets() {
+        Order order = existingOrder(700L, OrderStatus.NEW);
+        when(orderRepository.findByIdAndRestaurantIdWithItems(700L, 5L)).thenReturn(Optional.of(order));
+
+        assertThatThrownBy(() -> orderService.updateOrderStatus(5L, 700L, "NEW"))
+                .isInstanceOf(InvalidRequestParameterException.class);
+        assertThatThrownBy(() -> orderService.updateOrderStatus(5L, 700L, "CONFIRMED"))
+                .isInstanceOf(InvalidRequestParameterException.class);
+    }
+
+    @Test
+    void updateOrderStatus_throwsNotFound_whenOrderNotOwnedByRestaurant() {
+        when(orderRepository.findByIdAndRestaurantIdWithItems(700L, 5L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> orderService.updateOrderStatus(5L, 700L, "PREPARING"))
+                .isInstanceOf(OrderNotFoundException.class);
     }
 
     private CheckoutRequest checkoutRequest(Long addressId, String paymentMethod) {
@@ -302,6 +383,7 @@ class OrderServiceTest {
         order.setTotal(BigDecimal.valueOf(112));
         order.setPaymentMethod(PaymentMethod.CASH_ON_DELIVERY);
         order.setStatus(status);
+        order.setCreatedAt(LocalDateTime.now());
         return order;
     }
 }

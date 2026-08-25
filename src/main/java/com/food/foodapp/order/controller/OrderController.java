@@ -2,6 +2,7 @@ package com.food.foodapp.order.controller;
 
 import com.food.foodapp.order.dto.CheckoutRequest;
 import com.food.foodapp.order.dto.OrderResponse;
+import com.food.foodapp.order.dto.OrderTrackingResponse;
 import com.food.foodapp.order.service.OrderService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -37,6 +38,12 @@ public class OrderController {
     @GetMapping("/{orderId}")
     public ResponseEntity<OrderResponse> getOrder(@PathVariable Long orderId) {
         return ResponseEntity.ok(orderService.getOrder(orderId));
+    }
+
+    /** GET /api/v1/orders/{orderId}/track */
+    @GetMapping("/{orderId}/track")
+    public ResponseEntity<OrderTrackingResponse> trackOrder(@PathVariable Long orderId) {
+        return ResponseEntity.ok(orderService.trackOrder(orderId));
     }
 
     /** POST /api/v1/orders/{orderId}/cancel */
