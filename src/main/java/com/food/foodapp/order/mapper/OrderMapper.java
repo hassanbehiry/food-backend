@@ -61,7 +61,8 @@ public final class OrderMapper {
                 .id(item.getId())
                 .menuItemId(item.getMenuItemId())
                 .name(item.getName())
-                .unitPrice(item.getUnitPrice())
+                .img(item.getImageUrl())
+                .price(item.getUnitPrice())
                 .quantity(item.getQuantity())
                 .lineTotal(item.getLineTotal())
                 .build();
