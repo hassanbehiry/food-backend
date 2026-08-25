@@ -1,6 +1,8 @@
 package com.food.foodapp.auth.jwt;
 
 import com.food.foodapp.auth.entity.User;
+import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import org.springframework.beans.factory.annotation.Value;
@@ -41,5 +43,19 @@ public class JwtUtil {
                 .expiration(expiryDate)
                 .signWith(key)
                 .compact();
+    }
+
+    /**
+     * Parses and validates a JWT, returning the user id stored as its subject.
+     *
+     * @throws JwtException if the token is missing, malformed, expired, or has an invalid signature
+     */
+    public Long parseUserId(String token) {
+        Claims claims = Jwts.parser()
+                .verifyWith(key)
+                .build()
+                .parseSignedClaims(token)
+                .getPayload();
+        return Long.valueOf(claims.getSubject());
     }
 }
