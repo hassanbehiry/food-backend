@@ -20,6 +20,11 @@ import com.food.foodapp.order.dto.CheckoutRequest;
 import com.food.foodapp.order.dto.CheckoutResponse;
 import com.food.foodapp.order.dto.OrderResponse;
 import com.food.foodapp.order.dto.OrderTrackingResponse;
+import com.food.foodapp.order.dto.OwnerDashboardResponse;
+import com.food.foodapp.order.dto.OwnerOrderListResponse;
+import com.food.foodapp.order.dto.OwnerOrderResponse;
+import com.food.foodapp.order.dto.OwnerOrderStatsResponse;
+import com.food.foodapp.order.dto.OwnerOrderSummaryResponse;
 import com.food.foodapp.order.entity.Order;
 import com.food.foodapp.order.entity.OrderItem;
 import com.food.foodapp.order.entity.OrderStatus;
@@ -29,6 +34,9 @@ import com.food.foodapp.order.repository.OrderRepository;
 import com.food.foodapp.restaurant.entity.Restaurant;
 import com.food.foodapp.restaurant.service.RestaurantService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -71,12 +79,26 @@ public class OrderService {
     private static final Set<OrderStatus> OWNER_REQUESTABLE_STATUSES =
             Set.of(OrderStatus.PREPARING, OrderStatus.ON_THE_WAY, OrderStatus.DELIVERED, OrderStatus.CANCELLED);
 
+    /**
+     * Statuses an owner may filter the order list by — exactly the owner dashboard's tabs besides
+     * "all" (see the task's canonical tab set). {@code CONFIRMED} has no tab of its own (it's an
+     * internal, effectively-instantaneous transition — see {@link OrderStatus}) and neither does
+     * {@code CANCELLED}; a {@code null}/absent filter (the "all" tab) still returns every status,
+     * including those two.
+     */
+    private static final Set<OrderStatus> OWNER_LISTABLE_STATUSES =
+            Set.of(OrderStatus.NEW, OrderStatus.PREPARING, OrderStatus.ON_THE_WAY, OrderStatus.DELIVERED);
+
+    private static final int MAX_PAGE_SIZE = 50;
+    private static final int DASHBOARD_RECENT_ORDERS_LIMIT = 5;
+
     private final CartRepository cartRepository;
     private final CartItemRepository cartItemRepository;
     private final AddressRepository addressRepository;
     private final UserRepository userRepository;
     private final OrderRepository orderRepository;
     private final UserContext userContext;
+    private final RestaurantService restaurantService;
 
     @Transactional(readOnly = true)
     public CheckoutResponse previewCheckout(CheckoutRequest request) {
@@ -154,6 +176,90 @@ public class OrderService {
         transitionStatus(order, target);
 
         return OrderMapper.toResponse(order);
+    }
+
+    /**
+     * The owner dashboard's paginated, status-tabbed orders table. Scoped to {@code restaurantId}
+     * the same way {@link #updateOrderStatus} is (see its javadoc for the authorization gap this
+     * shares) — existence of the restaurant is validated so an unknown id fails with
+     * {@link RestaurantNotFoundException} rather than a silently-empty page.
+     */
+    @Transactional(readOnly = true)
+    public OwnerOrderListResponse listOrdersForOwner(Long restaurantId, String rawStatus, int page, int size) {
+        restaurantService.requireRestaurant(restaurantId);
+        validatePagination(page, size);
+        OrderStatus status = resolveOwnerListableStatus(rawStatus);
+
+        Page<Order> result = orderRepository.findByRestaurantIdAndOptionalStatus(
+                restaurantId, status, PageRequest.of(page, size));
+
+        return OwnerOrderListResponse.builder()
+                .orders(result.getContent().stream().map(OrderMapper::toOwnerSummary).toList())
+                .page(result.getNumber())
+                .size(result.getSize())
+                .totalElements(result.getTotalElements())
+                .totalPages(result.getTotalPages())
+                .build();
+    }
+
+    /** The owner order-detail view, scoped to {@code restaurantId} the same way {@link #updateOrderStatus} is. */
+    @Transactional(readOnly = true)
+    public OwnerOrderResponse getOrderForOwner(Long restaurantId, Long orderId) {
+        Order order = orderRepository.findByIdAndRestaurantIdWithItems(orderId, restaurantId)
+                .orElseThrow(() -> new OrderNotFoundException("Order not found: " + orderId));
+        return OrderMapper.toOwnerResponse(order);
+    }
+
+    /**
+     * The combined stats + recent-orders payload behind the owner dashboard's landing view — see
+     * {@link OwnerDashboardResponse}. The finer-grained, fully paginated/filterable order list
+     * this is layered on top of is {@link #listOrdersForOwner}.
+     */
+    @Transactional(readOnly = true)
+    public OwnerDashboardResponse getDashboard(Long restaurantId) {
+        Restaurant restaurant = restaurantService.requireRestaurant(restaurantId);
+
+        OwnerOrderStatsResponse stats = OwnerOrderStatsResponse.builder()
+                .newCount(orderRepository.countByRestaurantIdAndStatus(restaurantId, OrderStatus.NEW))
+                .preparingCount(orderRepository.countByRestaurantIdAndStatus(restaurantId, OrderStatus.PREPARING))
+                .onTheWayCount(orderRepository.countByRestaurantIdAndStatus(restaurantId, OrderStatus.ON_THE_WAY))
+                .deliveredCount(orderRepository.countByRestaurantIdAndStatus(restaurantId, OrderStatus.DELIVERED))
+                .totalCount(orderRepository.countByRestaurantId(restaurantId))
+                .build();
+
+        Pageable recentPageable = PageRequest.of(0, DASHBOARD_RECENT_ORDERS_LIMIT);
+        List<OwnerOrderSummaryResponse> recentOrders = orderRepository
+                .findByRestaurantIdAndOptionalStatus(restaurantId, null, recentPageable)
+                .getContent().stream().map(OrderMapper::toOwnerSummary).toList();
+
+        return OrderMapper.toDashboard(restaurant, stats, recentOrders);
+    }
+
+    private OrderStatus resolveOwnerListableStatus(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        OrderStatus status;
+        try {
+            status = OrderStatus.valueOf(raw.trim().toUpperCase());
+        } catch (IllegalArgumentException e) {
+            throw new InvalidRequestParameterException("Invalid 'status' value: '" + raw + "'");
+        }
+        if (!OWNER_LISTABLE_STATUSES.contains(status)) {
+            throw new InvalidRequestParameterException(
+                    "Invalid 'status' value: '" + raw + "'. Allowed values: " + OWNER_LISTABLE_STATUSES);
+        }
+        return status;
+    }
+
+    private void validatePagination(int page, int size) {
+        if (page < 0) {
+            throw new InvalidRequestParameterException("Query parameter 'page' must be >= 0");
+        }
+        if (size < 1 || size > MAX_PAGE_SIZE) {
+            throw new InvalidRequestParameterException(
+                    "Query parameter 'size' must be between 1 and " + MAX_PAGE_SIZE);
+        }
     }
 
     private OrderStatus resolveOwnerTargetStatus(String raw) {
