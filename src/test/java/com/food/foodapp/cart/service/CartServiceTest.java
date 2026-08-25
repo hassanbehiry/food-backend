@@ -115,7 +115,7 @@ class CartServiceTest {
     void addItem_addsNewItem_toEmptyCart() {
         Restaurant restaurant = visibleRestaurant();
         Cart cart = existingCart(null);
-        when(cartRepository.findByCustomerIdWithItems(1L)).thenReturn(Optional.of(cart));
+        stubForUpdate(cart);
         MenuItem menuItem = menuItem(10L, restaurant, true);
         when(menuItemRepository.findById(10L)).thenReturn(Optional.of(menuItem));
 
@@ -137,7 +137,7 @@ class CartServiceTest {
         MenuItem menuItem = menuItem(10L, restaurant, true);
         CartItem existingItem = cartItem(cart, menuItem, 2);
         cart.setItems(new ArrayList<>(List.of(existingItem)));
-        when(cartRepository.findByCustomerIdWithItems(1L)).thenReturn(Optional.of(cart));
+        stubForUpdate(cart);
         when(menuItemRepository.findById(10L)).thenReturn(Optional.of(menuItem));
 
         CartAddItemRequest request = new CartAddItemRequest();
@@ -151,10 +151,27 @@ class CartServiceTest {
     }
 
     @Test
+    void addItem_throwsInvalidRequestParameter_whenMergedQuantityExceedsLimit() {
+        Restaurant restaurant = visibleRestaurant();
+        Cart cart = existingCart(restaurant);
+        MenuItem menuItem = menuItem(10L, restaurant, true);
+        CartItem existingItem = cartItem(cart, menuItem, CartItem.MAX_QUANTITY_PER_ITEM - 2);
+        cart.setItems(new ArrayList<>(List.of(existingItem)));
+        stubForUpdate(cart);
+        when(menuItemRepository.findById(10L)).thenReturn(Optional.of(menuItem));
+
+        CartAddItemRequest request = new CartAddItemRequest();
+        request.setMenuItemId(10L);
+        request.setQuantity(3);
+
+        assertThatThrownBy(() -> cartService.addItem(request)).isInstanceOf(InvalidRequestParameterException.class);
+    }
+
+    @Test
     void addItem_throwsUnavailable_whenMenuItemNotAvailable() {
         Restaurant restaurant = visibleRestaurant();
         Cart cart = existingCart(null);
-        when(cartRepository.findByCustomerIdWithItems(1L)).thenReturn(Optional.of(cart));
+        stubForUpdate(cart);
         when(menuItemRepository.findById(10L)).thenReturn(Optional.of(menuItem(10L, restaurant, false)));
 
         CartAddItemRequest request = new CartAddItemRequest();
@@ -167,7 +184,7 @@ class CartServiceTest {
     @Test
     void addItem_throwsNotFound_whenMenuItemMissing() {
         Cart cart = existingCart(null);
-        when(cartRepository.findByCustomerIdWithItems(1L)).thenReturn(Optional.of(cart));
+        stubForUpdate(cart);
         when(menuItemRepository.findById(99L)).thenReturn(Optional.empty());
 
         CartAddItemRequest request = new CartAddItemRequest();
@@ -184,7 +201,7 @@ class CartServiceTest {
         restaurant.setApprovalStatus(RestaurantApprovalStatus.PENDING);
         restaurant.setOpenForOrders(true);
         Cart cart = existingCart(null);
-        when(cartRepository.findByCustomerIdWithItems(1L)).thenReturn(Optional.of(cart));
+        stubForUpdate(cart);
         when(menuItemRepository.findById(10L)).thenReturn(Optional.of(menuItem(10L, restaurant, true)));
 
         CartAddItemRequest request = new CartAddItemRequest();
@@ -204,7 +221,7 @@ class CartServiceTest {
 
         Cart cart = existingCart(existingRestaurant);
         cart.setItems(new ArrayList<>(List.of(cartItem(cart, menuItem(10L, existingRestaurant, true), 1))));
-        when(cartRepository.findByCustomerIdWithItems(1L)).thenReturn(Optional.of(cart));
+        stubForUpdate(cart);
         when(menuItemRepository.findById(20L)).thenReturn(Optional.of(menuItem(20L, otherRestaurant, true)));
 
         CartAddItemRequest request = new CartAddItemRequest();
@@ -221,7 +238,7 @@ class CartServiceTest {
         CartItem item = cartItem(cart, menuItem(10L, restaurant, true), 1);
         item.setId(500L);
         cart.setItems(new ArrayList<>(List.of(item)));
-        when(cartRepository.findByCustomerIdWithItems(1L)).thenReturn(Optional.of(cart));
+        stubForUpdate(cart);
 
         CartUpdateItemRequest request = new CartUpdateItemRequest();
         request.setQuantity(7);
@@ -234,7 +251,7 @@ class CartServiceTest {
     @Test
     void updateItemQuantity_throwsNotFound_whenItemMissing() {
         Cart cart = existingCart(null);
-        when(cartRepository.findByCustomerIdWithItems(1L)).thenReturn(Optional.of(cart));
+        stubForUpdate(cart);
 
         CartUpdateItemRequest request = new CartUpdateItemRequest();
         request.setQuantity(1);
@@ -250,7 +267,7 @@ class CartServiceTest {
         CartItem item = cartItem(cart, menuItem(10L, restaurant, true), 1);
         item.setId(500L);
         cart.setItems(new ArrayList<>(List.of(item)));
-        when(cartRepository.findByCustomerIdWithItems(1L)).thenReturn(Optional.of(cart));
+        stubForUpdate(cart);
 
         CartResponse response = cartService.removeItem(500L);
 
@@ -261,7 +278,7 @@ class CartServiceTest {
     @Test
     void removeItem_throwsNotFound_whenItemMissing() {
         Cart cart = existingCart(null);
-        when(cartRepository.findByCustomerIdWithItems(1L)).thenReturn(Optional.of(cart));
+        stubForUpdate(cart);
 
         assertThatThrownBy(() -> cartService.removeItem(999L)).isInstanceOf(CartItemNotFoundException.class);
     }
@@ -271,7 +288,7 @@ class CartServiceTest {
         Restaurant restaurant = visibleRestaurant();
         Cart cart = existingCart(restaurant);
         cart.setItems(new ArrayList<>(List.of(cartItem(cart, menuItem(10L, restaurant, true), 1))));
-        when(cartRepository.findByCustomerIdWithItems(1L)).thenReturn(Optional.of(cart));
+        stubForUpdate(cart);
 
         CartResponse response = cartService.clearCart();
 
@@ -284,7 +301,7 @@ class CartServiceTest {
     void syncCart_replacesItems_withValidSingleRestaurantSelection() {
         Restaurant restaurant = visibleRestaurant();
         Cart cart = existingCart(null);
-        when(cartRepository.findByCustomerIdWithItems(1L)).thenReturn(Optional.of(cart));
+        stubForUpdate(cart);
         MenuItem itemA = menuItem(10L, restaurant, true);
         MenuItem itemB = menuItem(11L, restaurant, true);
         when(menuItemRepository.findAllByIdWithRestaurant(anyCollection())).thenReturn(List.of(itemA, itemB));
@@ -303,7 +320,7 @@ class CartServiceTest {
         Restaurant restaurant = visibleRestaurant();
         Cart cart = existingCart(restaurant);
         cart.setItems(new ArrayList<>(List.of(cartItem(cart, menuItem(10L, restaurant, true), 1))));
-        when(cartRepository.findByCustomerIdWithItems(1L)).thenReturn(Optional.of(cart));
+        stubForUpdate(cart);
 
         CartResponse response = cartService.syncCart(syncRequest());
 
@@ -312,13 +329,21 @@ class CartServiceTest {
     }
 
     @Test
-    void syncCart_rejectsDuplicateMenuItemId() {
+    void syncCart_collapsesDuplicateMenuItemId_lastValueWins() {
+        Restaurant restaurant = visibleRestaurant();
         Cart cart = existingCart(null);
-        when(cartRepository.findByCustomerIdWithItems(1L)).thenReturn(Optional.of(cart));
+        stubForUpdate(cart);
+        MenuItem itemA = menuItem(10L, restaurant, true);
+        when(menuItemRepository.findAllByIdWithRestaurant(anyCollection())).thenReturn(List.of(itemA));
 
-        CartSyncRequest request = syncRequest(syncItem(10L, 1), syncItem(10L, 2));
+        // Two entries for the same menuItemId: the sync payload is the desired end state, so the
+        // last qty (5) wins instead of being rejected or summed with the first (1).
+        CartSyncRequest request = syncRequest(syncItem(10L, 1), syncItem(10L, 5));
 
-        assertThatThrownBy(() -> cartService.syncCart(request)).isInstanceOf(InvalidRequestParameterException.class);
+        CartResponse response = cartService.syncCart(request);
+
+        assertThat(response.getItems()).hasSize(1);
+        assertThat(response.getItems().get(0).getQuantity()).isEqualTo(5);
     }
 
     @Test
@@ -329,7 +354,7 @@ class CartServiceTest {
         restaurantB.setApprovalStatus(RestaurantApprovalStatus.APPROVED);
         restaurantB.setOpenForOrders(true);
         Cart cart = existingCart(null);
-        when(cartRepository.findByCustomerIdWithItems(1L)).thenReturn(Optional.of(cart));
+        stubForUpdate(cart);
         when(menuItemRepository.findAllByIdWithRestaurant(anyCollection()))
                 .thenReturn(List.of(menuItem(10L, restaurantA, true), menuItem(20L, restaurantB, true)));
 
@@ -342,7 +367,7 @@ class CartServiceTest {
     void syncCart_rejectsUnavailableItem() {
         Restaurant restaurant = visibleRestaurant();
         Cart cart = existingCart(null);
-        when(cartRepository.findByCustomerIdWithItems(1L)).thenReturn(Optional.of(cart));
+        stubForUpdate(cart);
         when(menuItemRepository.findAllByIdWithRestaurant(anyCollection()))
                 .thenReturn(List.of(menuItem(10L, restaurant, false)));
 
@@ -354,12 +379,18 @@ class CartServiceTest {
     @Test
     void syncCart_rejectsMissingMenuItem() {
         Cart cart = existingCart(null);
-        when(cartRepository.findByCustomerIdWithItems(1L)).thenReturn(Optional.of(cart));
+        stubForUpdate(cart);
         when(menuItemRepository.findAllByIdWithRestaurant(anyCollection())).thenReturn(List.of());
 
         CartSyncRequest request = syncRequest(syncItem(10L, 1));
 
         assertThatThrownBy(() -> cartService.syncCart(request)).isInstanceOf(MenuItemNotFoundException.class);
+    }
+
+    /** Every mutating operation locks the cart row first, then loads the full item graph. */
+    private void stubForUpdate(Cart cart) {
+        when(cartRepository.findByCustomerIdForUpdate(1L)).thenReturn(Optional.of(cart));
+        when(cartRepository.findByCustomerIdWithItems(1L)).thenReturn(Optional.of(cart));
     }
 
     private Cart existingCart(Restaurant restaurant) {

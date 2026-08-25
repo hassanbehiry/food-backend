@@ -113,6 +113,14 @@ class CartControllerTest {
     }
 
     @Test
+    void addItem_returns400_whenQuantityExceedsLimit() throws Exception {
+        mockMvc.perform(post("/api/v1/cart/items")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"menuItemId\":10,\"quantity\":51}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
     void updateItemQuantity_returnsUpdatedCart() throws Exception {
         when(cartService.updateItemQuantity(eq(500L), any())).thenReturn(cartWithOneItem());
 

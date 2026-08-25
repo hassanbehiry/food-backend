@@ -6,6 +6,7 @@ import com.food.foodapp.cart.entity.Cart;
 import com.food.foodapp.cart.entity.CartItem;
 import com.food.foodapp.menu.entity.MenuCategory;
 import com.food.foodapp.menu.entity.MenuItem;
+import com.food.foodapp.menu.repository.MenuItemRepository;
 import com.food.foodapp.restaurant.entity.Restaurant;
 import com.food.foodapp.restaurant.entity.RestaurantApprovalStatus;
 import org.junit.jupiter.api.Test;
@@ -13,11 +14,13 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
 import org.springframework.boot.jpa.test.autoconfigure.TestEntityManager;
+import org.springframework.dao.DataIntegrityViolationException;
 
 import java.math.BigDecimal;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
@@ -28,6 +31,12 @@ class CartRepositoryTest {
 
     @Autowired
     private CartRepository cartRepository;
+
+    @Autowired
+    private CartItemRepository cartItemRepository;
+
+    @Autowired
+    private MenuItemRepository menuItemRepository;
 
     @Test
     void findByCustomerIdWithItems_loadsItemsAndMenuItemsWithoutLazyInitializationException() {
@@ -66,6 +75,77 @@ class CartRepositoryTest {
         Optional<Cart> found = cartRepository.findByCustomerIdWithItems(customer.getId());
 
         assertThat(found).isEmpty();
+    }
+
+    @Test
+    void findByCustomerIdForUpdate_locksAndReturnsCart_withoutJoiningItems() {
+        User customer = persistUser("lock-owner-" + System.nanoTime() + "@example.com");
+        Cart cart = new Cart();
+        cart.setCustomer(customer);
+        entityManager.persist(cart);
+        entityManager.flush();
+        entityManager.clear();
+
+        Optional<Cart> found = cartRepository.findByCustomerIdForUpdate(customer.getId());
+
+        assertThat(found).isPresent();
+        assertThat(found.get().getId()).isEqualTo(cart.getId());
+    }
+
+    @Test
+    void deletingMenuItem_cascadesToItsCartItems_insteadOfViolatingForeignKey() {
+        User customer = persistUser("cascade-owner-" + System.nanoTime() + "@example.com");
+        Restaurant restaurant = persistRestaurant("Burger Place");
+        MenuCategory category = persistCategory(restaurant);
+        MenuItem menuItem = persistMenuItem(restaurant, category, "برجر", BigDecimal.valueOf(40));
+
+        Cart cart = new Cart();
+        cart.setCustomer(customer);
+        cart.setRestaurant(restaurant);
+        entityManager.persist(cart);
+
+        CartItem item = new CartItem();
+        item.setCart(cart);
+        item.setMenuItem(menuItem);
+        item.setQuantity(2);
+        entityManager.persist(item);
+        entityManager.flush();
+        Long cartItemId = item.getId();
+
+        menuItemRepository.delete(menuItem);
+        entityManager.flush();
+        entityManager.clear();
+
+        assertThat(cartItemRepository.findById(cartItemId)).isEmpty();
+    }
+
+    @Test
+    void savingSecondCartItem_forSameMenuItem_violatesUniqueConstraint() {
+        User customer = persistUser("dup-owner-" + System.nanoTime() + "@example.com");
+        Restaurant restaurant = persistRestaurant("Sushi Place");
+        MenuCategory category = persistCategory(restaurant);
+        MenuItem menuItem = persistMenuItem(restaurant, category, "سوشي", BigDecimal.valueOf(60));
+
+        Cart cart = new Cart();
+        cart.setCustomer(customer);
+        cart.setRestaurant(restaurant);
+        entityManager.persist(cart);
+
+        CartItem first = new CartItem();
+        first.setCart(cart);
+        first.setMenuItem(menuItem);
+        first.setQuantity(1);
+        entityManager.persist(first);
+        entityManager.flush();
+
+        CartItem duplicate = new CartItem();
+        duplicate.setCart(cart);
+        duplicate.setMenuItem(menuItem);
+        duplicate.setQuantity(1);
+
+        assertThatThrownBy(() -> {
+            cartItemRepository.saveAndFlush(duplicate);
+        }).isInstanceOf(DataIntegrityViolationException.class);
     }
 
     private User persistUser(String email) {
