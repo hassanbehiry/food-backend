@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -13,6 +14,10 @@ import java.util.Optional;
 public interface MenuItemRepository extends JpaRepository<MenuItem, Long> {
 
     Optional<MenuItem> findByIdAndRestaurantId(Long id, Long restaurantId);
+
+    /** Fetch-joins the restaurant so a caller validating several items at once (e.g. cart sync) avoids N+1. */
+    @Query("SELECT i FROM MenuItem i JOIN FETCH i.restaurant WHERE i.id IN :ids")
+    List<MenuItem> findAllByIdWithRestaurant(@Param("ids") Collection<Long> ids);
 
     List<MenuItem> findByCategoryIdOrderByDisplayOrderAscIdAsc(Long categoryId);
 
