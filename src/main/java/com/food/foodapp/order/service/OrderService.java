@@ -15,6 +15,9 @@ import com.food.foodapp.common.exception.InvalidRequestParameterException;
 import com.food.foodapp.common.exception.MenuItemUnavailableException;
 import com.food.foodapp.common.exception.OrderNotFoundException;
 import com.food.foodapp.common.exception.RestaurantNotFoundException;
+import com.food.foodapp.coupon.entity.Coupon;
+import com.food.foodapp.coupon.service.CouponService;
+import com.food.foodapp.coupon.service.CouponService.CouponApplication;
 import com.food.foodapp.menu.entity.MenuItem;
 import com.food.foodapp.order.dto.CheckoutRequest;
 import com.food.foodapp.order.dto.CheckoutResponse;
@@ -66,6 +69,11 @@ import java.util.concurrent.ThreadLocalRandom;
  * concurrent cart mutation would — by the time the second request acquires it, the first has
  * already committed the order and emptied the cart, so the second sees an empty cart and fails
  * with {@link CartEmptyException} instead of creating a second order.
+ * <p>
+ * When {@link CheckoutRequest#getCouponCode()} is set, {@link #placeOrder} records the redemption
+ * via {@code CouponService#recordUsage} right after the order is saved, in the same transaction —
+ * that call takes its own row lock on the coupon (not the cart lock above) so two different
+ * customers racing to redeem the last remaining use of a limited coupon can't both succeed.
  */
 @Service
 @RequiredArgsConstructor
@@ -99,6 +107,7 @@ public class OrderService {
     private final OrderRepository orderRepository;
     private final UserContext userContext;
     private final RestaurantService restaurantService;
+    private final CouponService couponService;
 
     @Transactional(readOnly = true)
     public CheckoutResponse previewCheckout(CheckoutRequest request) {
@@ -108,7 +117,7 @@ public class OrderService {
         OrderComputation computation = computeOrder(request, cart, customerId);
         return OrderMapper.toCheckoutResponse(computation.restaurant(), computation.items(), computation.address(),
                 computation.paymentMethod(), computation.subtotal(), computation.deliveryFee(),
-                computation.discount(), computation.total());
+                computation.couponCode(), computation.discount(), computation.total());
     }
 
     @Transactional
@@ -120,6 +129,9 @@ public class OrderService {
         Order order = buildOrder(computation, customerId);
         Order saved = orderRepository.save(order);
 
+        if (computation.coupon() != null) {
+            couponService.recordUsage(computation.coupon(), saved);
+        }
         clearCart(cart);
 
         return OrderMapper.toResponse(saved);
@@ -321,12 +333,20 @@ public class OrderService {
                 .map(item -> item.getMenuItem().getPrice().multiply(BigDecimal.valueOf(item.getQuantity())))
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
         BigDecimal deliveryFee = restaurant.getDeliveryFee();
-        // No coupon/discount engine exists yet in this codebase — CartMapper stubs the same field at zero.
+
+        Coupon coupon = null;
+        String couponCode = null;
         BigDecimal discount = BigDecimal.ZERO;
+        if (request.getCouponCode() != null && !request.getCouponCode().isBlank()) {
+            CouponApplication application = couponService.validate(request.getCouponCode(), restaurant, subtotal);
+            coupon = application.coupon();
+            couponCode = coupon.getCode();
+            discount = application.discount();
+        }
         BigDecimal total = subtotal.add(deliveryFee).subtract(discount);
 
         return new OrderComputation(restaurant, cart.getItems(), address, paymentMethod, subtotal, deliveryFee,
-                discount, total);
+                coupon, couponCode, discount, total);
     }
 
     private Order buildOrder(OrderComputation computation, Long customerId) {
@@ -344,6 +364,7 @@ public class OrderService {
 
         order.setSubtotal(computation.subtotal());
         order.setDeliveryFee(computation.deliveryFee());
+        order.setCouponCode(computation.couponCode());
         order.setDiscount(computation.discount());
         order.setTotal(computation.total());
         order.setPaymentMethod(computation.paymentMethod());
@@ -399,6 +420,6 @@ public class OrderService {
 
     private record OrderComputation(Restaurant restaurant, List<CartItem> items, Address address,
                                      PaymentMethod paymentMethod, BigDecimal subtotal, BigDecimal deliveryFee,
-                                     BigDecimal discount, BigDecimal total) {
+                                     Coupon coupon, String couponCode, BigDecimal discount, BigDecimal total) {
     }
 }

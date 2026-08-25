@@ -11,6 +11,10 @@ import lombok.Setter;
  * exactly the same inputs. {@code paymentMethod} is a raw string rather than the
  * {@code PaymentMethod} enum directly so an unsupported value fails as a clean, validated 400
  * (see {@code OrderService}) instead of a raw JSON-deserialization error.
+ * <p>
+ * {@code couponCode} is optional and, like every other field here, re-validated from scratch by
+ * both endpoints via {@code CouponService} — the discount it yields is never accepted from the
+ * caller, only the code.
  */
 @Getter
 @Setter
@@ -21,4 +25,6 @@ public class CheckoutRequest {
 
     @NotBlank(message = "paymentMethod is required")
     private String paymentMethod;
+
+    private String couponCode;
 }
