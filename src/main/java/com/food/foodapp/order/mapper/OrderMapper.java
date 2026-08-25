@@ -8,6 +8,10 @@ import com.food.foodapp.order.dto.CheckoutResponse;
 import com.food.foodapp.order.dto.OrderItemResponse;
 import com.food.foodapp.order.dto.OrderResponse;
 import com.food.foodapp.order.dto.OrderTrackingResponse;
+import com.food.foodapp.order.dto.OwnerDashboardResponse;
+import com.food.foodapp.order.dto.OwnerOrderResponse;
+import com.food.foodapp.order.dto.OwnerOrderStatsResponse;
+import com.food.foodapp.order.dto.OwnerOrderSummaryResponse;
 import com.food.foodapp.order.dto.TrackingStepResponse;
 import com.food.foodapp.order.entity.Order;
 import com.food.foodapp.order.entity.OrderItem;
@@ -92,6 +96,48 @@ public final class OrderMapper {
                 .steps(steps)
                 .estimatedDeliveryAt(estimateDeliveryAt(order))
                 .statusUpdatedAt(order.getUpdatedAt())
+                .build();
+    }
+
+    /** One row of the owner dashboard's orders table — see {@link OwnerOrderSummaryResponse}. */
+    public static OwnerOrderSummaryResponse toOwnerSummary(Order order) {
+        return OwnerOrderSummaryResponse.builder()
+                .id(order.getId())
+                .orderNumber(order.getOrderNumber())
+                .customerName(order.getCustomer().getName())
+                .total(order.getTotal())
+                .status(order.getStatus())
+                .createdAt(order.getCreatedAt())
+                .build();
+    }
+
+    /** The owner order-detail view — {@link #toResponse} plus the customer's display name. */
+    public static OwnerOrderResponse toOwnerResponse(Order order) {
+        return OwnerOrderResponse.builder()
+                .id(order.getId())
+                .orderNumber(order.getOrderNumber())
+                .customerName(order.getCustomer().getName())
+                .items(order.getItems().stream().map(OrderMapper::toItemResponse).toList())
+                .deliveryAddress(AddressMapper.composeDetail(
+                        order.getDeliveryStreet(), order.getDeliveryCity(), order.getDeliveryPostalCode()))
+                .subtotal(order.getSubtotal())
+                .deliveryFee(order.getDeliveryFee())
+                .discount(order.getDiscount())
+                .total(order.getTotal())
+                .paymentMethod(order.getPaymentMethod())
+                .status(order.getStatus())
+                .createdAt(order.getCreatedAt())
+                .updatedAt(order.getUpdatedAt())
+                .build();
+    }
+
+    public static OwnerDashboardResponse toDashboard(Restaurant restaurant, OwnerOrderStatsResponse stats,
+                                                       List<OwnerOrderSummaryResponse> recentOrders) {
+        return OwnerDashboardResponse.builder()
+                .restaurantId(restaurant.getId())
+                .restaurantName(restaurant.getName())
+                .stats(stats)
+                .recentOrders(recentOrders)
                 .build();
     }
 
