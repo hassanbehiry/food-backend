@@ -94,6 +94,10 @@ public class Order {
     @Column(nullable = false, precision = 10, scale = 2)
     private BigDecimal discount;
 
+    /** The coupon redeemed for {@code discount}, if any — a snapshot of the code, not a live reference to {@code Coupon}. */
+    @Column(name = "coupon_code", length = 30)
+    private String couponCode;
+
     @Column(nullable = false, precision = 10, scale = 2)
     private BigDecimal total;
 

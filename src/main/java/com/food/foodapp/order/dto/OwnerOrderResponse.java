@@ -27,6 +27,7 @@ public class OwnerOrderResponse {
     private String deliveryAddress;
     private BigDecimal subtotal;
     private BigDecimal deliveryFee;
+    private String couponCode;
     private BigDecimal discount;
     private BigDecimal total;
     private PaymentMethod paymentMethod;
