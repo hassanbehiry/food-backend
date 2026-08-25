@@ -72,6 +72,21 @@ public class RestaurantService {
         return RestaurantMapper.toDetail(restaurant);
     }
 
+    /** Existence check only — used by owner-side operations that must work regardless of approval/open status. */
+    @Transactional(readOnly = true)
+    public Restaurant requireRestaurant(Long id) {
+        return restaurantRepository.findById(id)
+                .orElseThrow(() -> new RestaurantNotFoundException("Restaurant not found: " + id));
+    }
+
+    /** Existence + customer-visibility check — used by customer-facing sub-resources of a restaurant. */
+    @Transactional(readOnly = true)
+    public Restaurant requireVisibleRestaurant(Long id) {
+        return restaurantRepository.findById(id)
+                .filter(RestaurantService::isCustomerVisible)
+                .orElseThrow(() -> new RestaurantNotFoundException("Restaurant not found: " + id));
+    }
+
     private static boolean isCustomerVisible(Restaurant restaurant) {
         return restaurant.getApprovalStatus() == RestaurantApprovalStatus.APPROVED && restaurant.isOpenForOrders();
     }
