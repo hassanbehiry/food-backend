@@ -51,6 +51,12 @@ import java.util.stream.Collectors;
  * the same persistence context is unnecessary and JPA session semantics around
  * refreshing an already-initialized collection mid-transaction are easy to get
  * subtly wrong.
+ * <p>
+ * Every mutating method loads the cart via {@link CartRepository#findByCustomerIdForUpdate},
+ * which takes a pessimistic write lock on the cart row for the rest of the transaction. This
+ * is what makes concurrent requests against the same cart (two rapid taps on "add", or two
+ * overlapping sync calls) safe: the second request blocks until the first commits, instead of
+ * both reading the same pre-mutation item set and racing to insert/update it.
  */
 @Service
 @RequiredArgsConstructor
@@ -71,7 +77,7 @@ public class CartService {
 
     @Transactional
     public CartResponse syncCart(CartSyncRequest request) {
-        Cart cart = loadOrCreateCart();
+        Cart cart = loadOrCreateCartForUpdate();
         List<CartSyncItemRequest> requestedItems = request.getItems();
 
         if (requestedItems.isEmpty()) {
@@ -79,12 +85,12 @@ public class CartService {
             return CartMapper.toResponse(cart);
         }
 
+        // The sync payload is the desired end state, not a stream of increments: if the same
+        // menuItemId appears more than once (e.g. the client merged a rapid double-tap locally
+        // before flushing), the last occurrence wins rather than being rejected or summed.
         Map<Long, Integer> quantityByMenuItemId = new LinkedHashMap<>();
         for (CartSyncItemRequest item : requestedItems) {
-            if (quantityByMenuItemId.put(item.getMenuItemId(), item.getQty()) != null) {
-                throw new InvalidRequestParameterException(
-                        "Duplicate menuItemId " + item.getMenuItemId() + " in sync request");
-            }
+            quantityByMenuItemId.put(item.getMenuItemId(), item.getQty());
         }
 
         List<MenuItem> menuItems = menuItemRepository.findAllByIdWithRestaurant(quantityByMenuItemId.keySet());
@@ -97,7 +103,7 @@ public class CartService {
 
     @Transactional
     public CartResponse addItem(CartAddItemRequest request) {
-        Cart cart = loadOrCreateCart();
+        Cart cart = loadOrCreateCartForUpdate();
         reconcile(cart);
 
         MenuItem menuItem = requireAvailableMenuItem(request.getMenuItemId());
@@ -112,7 +118,12 @@ public class CartService {
                 .findFirst();
         if (existing.isPresent()) {
             CartItem item = existing.get();
-            item.setQuantity(item.getQuantity() + request.getQuantity());
+            int mergedQuantity = item.getQuantity() + request.getQuantity();
+            if (mergedQuantity > CartItem.MAX_QUANTITY_PER_ITEM) {
+                throw new InvalidRequestParameterException(
+                        "quantity must be at most " + CartItem.MAX_QUANTITY_PER_ITEM + " per item");
+            }
+            item.setQuantity(mergedQuantity);
             cartItemRepository.save(item);
         } else {
             CartItem item = new CartItem();
@@ -133,7 +144,7 @@ public class CartService {
 
     @Transactional
     public CartResponse updateItemQuantity(Long cartItemId, CartUpdateItemRequest request) {
-        Cart cart = loadOrCreateCart();
+        Cart cart = loadOrCreateCartForUpdate();
         reconcile(cart);
 
         CartItem item = requireItem(cart, cartItemId);
@@ -145,7 +156,7 @@ public class CartService {
 
     @Transactional
     public CartResponse removeItem(Long cartItemId) {
-        Cart cart = loadOrCreateCart();
+        Cart cart = loadOrCreateCartForUpdate();
         reconcile(cart);
 
         CartItem item = requireItem(cart, cartItemId);
@@ -161,7 +172,7 @@ public class CartService {
 
     @Transactional
     public CartResponse clearCart() {
-        Cart cart = loadOrCreateCart();
+        Cart cart = loadOrCreateCartForUpdate();
         replaceItems(cart, null, Map.of(), Map.of());
         return CartMapper.toResponse(cart);
     }
@@ -258,6 +269,22 @@ public class CartService {
         Long customerId = userContext.getCurrentUserId();
         return cartRepository.findByCustomerIdWithItems(customerId)
                 .orElseGet(() -> createCart(customerId));
+    }
+
+    /**
+     * Same as {@link #loadOrCreateCart()} but for callers about to mutate the cart: takes the
+     * pessimistic write lock first, then loads the item graph, so the lock is already held by
+     * the time any item is read or written. If no cart row exists yet there is nothing to lock,
+     * so this falls back to plain creation — a race between two first-ever "add to cart" calls
+     * for a brand-new customer is bounded by the unique constraint on {@code customer_id} rather
+     * than by this lock.
+     */
+    private Cart loadOrCreateCartForUpdate() {
+        Long customerId = userContext.getCurrentUserId();
+        if (cartRepository.findByCustomerIdForUpdate(customerId).isEmpty()) {
+            return createCart(customerId);
+        }
+        return cartRepository.findByCustomerIdWithItems(customerId).orElseThrow();
     }
 
     private Cart createCart(Long customerId) {
