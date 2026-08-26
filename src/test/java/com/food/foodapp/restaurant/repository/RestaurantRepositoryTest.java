@@ -13,6 +13,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -97,6 +98,35 @@ class RestaurantRepositoryTest {
 
         assertThat(found).isPresent();
         assertThat(found.get().getCategories()).extracting(Category::getName).containsExactly(pizza.getName());
+    }
+
+    @Test
+    void countByApprovalStatusAndCreatedAtLessThan_countsApprovedRestaurants_createdBeforeBoundary() {
+        Restaurant approvedBefore = restaurant("Approved Before-" + System.nanoTime(), RestaurantApprovalStatus.APPROVED, true, Set.of());
+        Restaurant approvedAfter = restaurant("Approved After-" + System.nanoTime(), RestaurantApprovalStatus.APPROVED, true, Set.of());
+        Restaurant pendingBefore = restaurant("Pending Before-" + System.nanoTime(), RestaurantApprovalStatus.PENDING, true, Set.of());
+        entityManager.persist(approvedBefore);
+        entityManager.persist(approvedAfter);
+        entityManager.persist(pendingBefore);
+        entityManager.flush();
+        setCreatedAt(approvedBefore, LocalDateTime.of(2026, 8, 1, 0, 0));
+        setCreatedAt(approvedAfter, LocalDateTime.of(2026, 8, 20, 0, 0));
+        setCreatedAt(pendingBefore, LocalDateTime.of(2026, 8, 1, 0, 0));
+        entityManager.clear();
+
+        long count = restaurantRepository.countByApprovalStatusAndCreatedAtLessThan(
+                RestaurantApprovalStatus.APPROVED, LocalDateTime.of(2026, 8, 10, 0, 0));
+
+        assertThat(count).isEqualTo(1);
+    }
+
+    /** {@code createdAt} is {@code @CreationTimestamp}-generated, so boundary tests must overwrite it directly. */
+    private void setCreatedAt(Restaurant restaurant, LocalDateTime createdAt) {
+        entityManager.getEntityManager()
+                .createNativeQuery("UPDATE restaurants SET created_at = :createdAt WHERE id = :id")
+                .setParameter("createdAt", createdAt)
+                .setParameter("id", restaurant.getId())
+                .executeUpdate();
     }
 
     private Category category(String name) {

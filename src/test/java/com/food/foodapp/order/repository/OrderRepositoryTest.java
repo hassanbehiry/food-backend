@@ -283,6 +283,135 @@ class OrderRepositoryTest {
                 .containsExactly(tuple(order.getId(), 5L));
     }
 
+    @Test
+    void countByCreatedAtGreaterThanEqualAndCreatedAtLessThan_countsEveryStatusAcrossRestaurants_inRangeOnly() {
+        User customer = persistUser("admin-count-" + System.nanoTime() + "@example.com");
+        Restaurant pizzaPlace = persistRestaurant("Pizza Place");
+        Restaurant burgerPlace = persistRestaurant("Burger Place");
+        Order inRangeCancelled = persistOrder(customer, pizzaPlace);
+        inRangeCancelled.setStatus(OrderStatus.CANCELLED);
+        Order inRangeAtOtherRestaurant = persistOrder(customer, burgerPlace);
+        setCreatedAt(inRangeCancelled, LocalDateTime.of(2026, 8, 10, 12, 0));
+        setCreatedAt(inRangeAtOtherRestaurant, LocalDateTime.of(2026, 8, 15, 8, 0));
+        Order outOfRange = persistOrder(customer, pizzaPlace);
+        setCreatedAt(outOfRange, LocalDateTime.of(2026, 9, 1, 0, 0));
+        entityManager.flush();
+        entityManager.clear();
+
+        long count = orderRepository.countByCreatedAtGreaterThanEqualAndCreatedAtLessThan(
+                LocalDateTime.of(2026, 8, 1, 0, 0), LocalDateTime.of(2026, 9, 1, 0, 0));
+
+        assertThat(count).isEqualTo(2);
+    }
+
+    @Test
+    void sumRevenueByStatusInRange_sumsAcrossRestaurants_onlyTheGivenStatusInRange() {
+        User customer = persistUser("admin-revenue-" + System.nanoTime() + "@example.com");
+        Restaurant pizzaPlace = persistRestaurant("Pizza Place");
+        Restaurant burgerPlace = persistRestaurant("Burger Place");
+        Order delivered1 = persistOrder(customer, pizzaPlace);
+        delivered1.setStatus(OrderStatus.DELIVERED);
+        setCreatedAt(delivered1, LocalDateTime.of(2026, 8, 10, 12, 0));
+        Order delivered2 = persistOrder(customer, burgerPlace);
+        delivered2.setStatus(OrderStatus.DELIVERED);
+        setCreatedAt(delivered2, LocalDateTime.of(2026, 8, 20, 12, 0));
+        Order cancelled = persistOrder(customer, pizzaPlace);
+        cancelled.setStatus(OrderStatus.CANCELLED);
+        setCreatedAt(cancelled, LocalDateTime.of(2026, 8, 12, 12, 0));
+        entityManager.flush();
+        entityManager.clear();
+
+        RevenueAggregate result = orderRepository.sumRevenueByStatusInRange(
+                OrderStatus.DELIVERED, LocalDateTime.of(2026, 8, 1, 0, 0), LocalDateTime.of(2026, 9, 1, 0, 0));
+
+        assertThat(result.orderCount()).isEqualTo(2);
+        assertThat(result.totalRevenueOrZero()).isEqualByComparingTo(BigDecimal.valueOf(220));
+    }
+
+    @Test
+    void countGroupByStatusInRange_groupsAcrossRestaurants_omittingStatusesWithNoOrders() {
+        User customer = persistUser("admin-status-" + System.nanoTime() + "@example.com");
+        Restaurant pizzaPlace = persistRestaurant("Pizza Place");
+        Restaurant burgerPlace = persistRestaurant("Burger Place");
+        Order newOrder = persistOrder(customer, pizzaPlace);
+        setCreatedAt(newOrder, LocalDateTime.of(2026, 8, 10, 12, 0));
+        Order delivered = persistOrder(customer, burgerPlace);
+        delivered.setStatus(OrderStatus.DELIVERED);
+        setCreatedAt(delivered, LocalDateTime.of(2026, 8, 11, 12, 0));
+        entityManager.flush();
+        entityManager.clear();
+
+        List<OrderStatusCount> result = orderRepository.countGroupByStatusInRange(
+                LocalDateTime.of(2026, 8, 1, 0, 0), LocalDateTime.of(2026, 9, 1, 0, 0));
+
+        assertThat(result).extracting(OrderStatusCount::status, OrderStatusCount::count)
+                .containsExactlyInAnyOrder(tuple(OrderStatus.NEW, 1L), tuple(OrderStatus.DELIVERED, 1L));
+    }
+
+    @Test
+    void countGroupByCityInRange_groupsByDeliveryCity_inRangeOnly() {
+        User customer = persistUser("admin-city-" + System.nanoTime() + "@example.com");
+        Restaurant restaurant = persistRestaurant("Pizza Place");
+        Order cairoOrder1 = persistOrder(customer, restaurant);
+        Order cairoOrder2 = persistOrder(customer, restaurant);
+        Order gizaOrder = persistOrder(customer, restaurant);
+        gizaOrder.setDeliveryCity("Giza");
+        Order outOfRange = persistOrder(customer, restaurant);
+        setCreatedAt(cairoOrder1, LocalDateTime.of(2026, 8, 10, 12, 0));
+        setCreatedAt(cairoOrder2, LocalDateTime.of(2026, 8, 11, 12, 0));
+        setCreatedAt(gizaOrder, LocalDateTime.of(2026, 8, 12, 12, 0));
+        setCreatedAt(outOfRange, LocalDateTime.of(2026, 9, 1, 0, 0));
+        entityManager.flush();
+        entityManager.clear();
+
+        List<CityOrderCount> result = orderRepository.countGroupByCityInRange(
+                LocalDateTime.of(2026, 8, 1, 0, 0), LocalDateTime.of(2026, 9, 1, 0, 0));
+
+        assertThat(result).extracting(CityOrderCount::city, CityOrderCount::count)
+                .containsExactlyInAnyOrder(tuple("Cairo", 2L), tuple("Giza", 1L));
+    }
+
+    @Test
+    void findCreatedAtInRange_returnsOneTimestampPerOrder_inRangeOnly() {
+        User customer = persistUser("admin-timestamps-" + System.nanoTime() + "@example.com");
+        Restaurant restaurant = persistRestaurant("Pizza Place");
+        Order inRange = persistOrder(customer, restaurant);
+        setCreatedAt(inRange, LocalDateTime.of(2026, 8, 10, 9, 0));
+        Order outOfRange = persistOrder(customer, restaurant);
+        setCreatedAt(outOfRange, LocalDateTime.of(2026, 9, 1, 0, 0));
+        entityManager.flush();
+        entityManager.clear();
+
+        List<LocalDateTime> result = orderRepository.findCreatedAtInRange(
+                LocalDateTime.of(2026, 8, 1, 0, 0), LocalDateTime.of(2026, 9, 1, 0, 0));
+
+        assertThat(result).containsExactly(LocalDateTime.of(2026, 8, 10, 9, 0));
+    }
+
+    @Test
+    void findRevenueLinesByStatusInRange_returnsOnlyTheGivenStatus_acrossRestaurantsInRange() {
+        User customer = persistUser("admin-lines-" + System.nanoTime() + "@example.com");
+        Restaurant pizzaPlace = persistRestaurant("Pizza Place");
+        Restaurant burgerPlace = persistRestaurant("Burger Place");
+        Order delivered1 = persistOrder(customer, pizzaPlace);
+        delivered1.setStatus(OrderStatus.DELIVERED);
+        setCreatedAt(delivered1, LocalDateTime.of(2026, 8, 10, 9, 0));
+        Order delivered2 = persistOrder(customer, burgerPlace);
+        delivered2.setStatus(OrderStatus.DELIVERED);
+        setCreatedAt(delivered2, LocalDateTime.of(2026, 8, 11, 9, 0));
+        Order cancelled = persistOrder(customer, pizzaPlace);
+        cancelled.setStatus(OrderStatus.CANCELLED);
+        setCreatedAt(cancelled, LocalDateTime.of(2026, 8, 10, 10, 0));
+        entityManager.flush();
+        entityManager.clear();
+
+        List<RevenueLine> result = orderRepository.findRevenueLinesByStatusInRange(
+                OrderStatus.DELIVERED, LocalDateTime.of(2026, 8, 1, 0, 0), LocalDateTime.of(2026, 9, 1, 0, 0));
+
+        assertThat(result).hasSize(2);
+        assertThat(result.get(0).total()).isEqualByComparingTo(BigDecimal.valueOf(110));
+    }
+
     /** {@code createdAt} is {@code @CreationTimestamp}-generated, so date-range tests must overwrite it directly. */
     private void setCreatedAt(Order order, LocalDateTime createdAt) {
         entityManager.getEntityManager()
