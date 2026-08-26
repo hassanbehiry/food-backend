@@ -2,8 +2,11 @@ package com.food.foodapp.restaurant.service;
 
 import com.food.foodapp.common.exception.InvalidRequestParameterException;
 import com.food.foodapp.common.exception.RestaurantNotFoundException;
+import com.food.foodapp.restaurant.dto.OwnerRestaurantResponse;
+import com.food.foodapp.restaurant.dto.RestaurantAvailabilityRequest;
 import com.food.foodapp.restaurant.dto.RestaurantDetailResponse;
 import com.food.foodapp.restaurant.dto.RestaurantListResponse;
+import com.food.foodapp.restaurant.dto.RestaurantSettingsUpdateRequest;
 import com.food.foodapp.restaurant.entity.Restaurant;
 import com.food.foodapp.restaurant.entity.RestaurantApprovalStatus;
 import com.food.foodapp.restaurant.repository.RestaurantRepository;
@@ -20,6 +23,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 
 import java.math.BigDecimal;
+import java.time.LocalTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -152,6 +156,100 @@ class RestaurantServiceTest {
         assertThat(response.getTotalElements()).isEqualTo(1);
         assertThat(response.getTotalPages()).isEqualTo(1);
         assertThat(response.getRestaurants()).hasSize(1);
+    }
+
+    @Test
+    void getOwnerRestaurant_returnsResponse_regardlessOfApprovalOrOpenStatus() {
+        Restaurant restaurant = approvedOpenRestaurant();
+        restaurant.setApprovalStatus(RestaurantApprovalStatus.PENDING);
+        restaurant.setOpenForOrders(false);
+        when(restaurantRepository.findById(1L)).thenReturn(Optional.of(restaurant));
+
+        OwnerRestaurantResponse response = restaurantService.getOwnerRestaurant(1L);
+
+        assertThat(response.getId()).isEqualTo(1L);
+        assertThat(response.isOpenForOrders()).isFalse();
+    }
+
+    @Test
+    void getOwnerRestaurant_throwsNotFound_whenMissing() {
+        when(restaurantRepository.findById(99L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> restaurantService.getOwnerRestaurant(99L))
+                .isInstanceOf(RestaurantNotFoundException.class);
+    }
+
+    @Test
+    void updateSettings_updatesFieldsAndReturnsResponse() {
+        Restaurant restaurant = approvedOpenRestaurant();
+        when(restaurantRepository.findById(1L)).thenReturn(Optional.of(restaurant));
+        when(restaurantRepository.save(any(Restaurant.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        OwnerRestaurantResponse response = restaurantService.updateSettings(1L, settingsRequest());
+
+        assertThat(response.getName()).isEqualTo("Updated Name");
+        assertThat(response.getCuisine()).isEqualTo("مصري");
+        assertThat(response.getDeliveryFee()).isEqualByComparingTo(BigDecimal.valueOf(15));
+        assertThat(response.getMinimumOrder()).isEqualByComparingTo(BigDecimal.valueOf(60));
+        assertThat(response.getOpenTime()).isEqualTo(LocalTime.of(9, 0));
+        assertThat(response.getCloseTime()).isEqualTo(LocalTime.of(23, 0));
+    }
+
+    @Test
+    void updateSettings_throwsNotFound_whenMissing() {
+        when(restaurantRepository.findById(99L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> restaurantService.updateSettings(99L, settingsRequest()))
+                .isInstanceOf(RestaurantNotFoundException.class);
+    }
+
+    @Test
+    void updateSettings_rejectsCloseTimeNotAfterOpenTime() {
+        Restaurant restaurant = approvedOpenRestaurant();
+        when(restaurantRepository.findById(1L)).thenReturn(Optional.of(restaurant));
+
+        RestaurantSettingsUpdateRequest request = settingsRequest();
+        request.setOpenTime(LocalTime.of(12, 0));
+        request.setCloseTime(LocalTime.of(12, 0));
+
+        assertThatThrownBy(() -> restaurantService.updateSettings(1L, request))
+                .isInstanceOf(InvalidRequestParameterException.class);
+    }
+
+    @Test
+    void updateAvailability_updatesFlag() {
+        Restaurant restaurant = approvedOpenRestaurant();
+        when(restaurantRepository.findById(1L)).thenReturn(Optional.of(restaurant));
+        when(restaurantRepository.save(any(Restaurant.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        RestaurantAvailabilityRequest request = new RestaurantAvailabilityRequest();
+        request.setOpenForOrders(false);
+
+        OwnerRestaurantResponse response = restaurantService.updateAvailability(1L, request);
+
+        assertThat(response.isOpenForOrders()).isFalse();
+    }
+
+    @Test
+    void updateAvailability_throwsNotFound_whenMissing() {
+        when(restaurantRepository.findById(99L)).thenReturn(Optional.empty());
+
+        RestaurantAvailabilityRequest request = new RestaurantAvailabilityRequest();
+        request.setOpenForOrders(false);
+
+        assertThatThrownBy(() -> restaurantService.updateAvailability(99L, request))
+                .isInstanceOf(RestaurantNotFoundException.class);
+    }
+
+    private RestaurantSettingsUpdateRequest settingsRequest() {
+        RestaurantSettingsUpdateRequest request = new RestaurantSettingsUpdateRequest();
+        request.setName("Updated Name");
+        request.setCuisine("مصري");
+        request.setDeliveryFee(BigDecimal.valueOf(15));
+        request.setMinimumOrder(BigDecimal.valueOf(60));
+        request.setOpenTime(LocalTime.of(9, 0));
+        request.setCloseTime(LocalTime.of(23, 0));
+        return request;
     }
 
     private void stubEmptyPage() {

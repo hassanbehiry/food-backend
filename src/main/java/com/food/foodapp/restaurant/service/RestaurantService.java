@@ -2,8 +2,11 @@ package com.food.foodapp.restaurant.service;
 
 import com.food.foodapp.common.exception.InvalidRequestParameterException;
 import com.food.foodapp.common.exception.RestaurantNotFoundException;
+import com.food.foodapp.restaurant.dto.OwnerRestaurantResponse;
+import com.food.foodapp.restaurant.dto.RestaurantAvailabilityRequest;
 import com.food.foodapp.restaurant.dto.RestaurantDetailResponse;
 import com.food.foodapp.restaurant.dto.RestaurantListResponse;
+import com.food.foodapp.restaurant.dto.RestaurantSettingsUpdateRequest;
 import com.food.foodapp.restaurant.dto.RestaurantSortOption;
 import com.food.foodapp.restaurant.dto.RestaurantSummaryResponse;
 import com.food.foodapp.restaurant.entity.Restaurant;
@@ -20,6 +23,7 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalTime;
 import java.util.List;
 
 /**
@@ -89,6 +93,41 @@ public class RestaurantService {
 
     public static boolean isCustomerVisible(Restaurant restaurant) {
         return restaurant.getApprovalStatus() == RestaurantApprovalStatus.APPROVED && restaurant.isOpenForOrders();
+    }
+
+    /** Owner-facing settings view — works regardless of approval/open status. */
+    @Transactional(readOnly = true)
+    public OwnerRestaurantResponse getOwnerRestaurant(Long id) {
+        return RestaurantMapper.toOwnerResponse(requireRestaurant(id));
+    }
+
+    @Transactional
+    public OwnerRestaurantResponse updateSettings(Long id, RestaurantSettingsUpdateRequest request) {
+        Restaurant restaurant = requireRestaurant(id);
+        validateBusinessHours(request.getOpenTime(), request.getCloseTime());
+
+        restaurant.setName(request.getName().trim());
+        restaurant.setCuisine(request.getCuisine().trim());
+        restaurant.setDeliveryFee(request.getDeliveryFee());
+        restaurant.setMinimumOrder(request.getMinimumOrder());
+        restaurant.setOpenTime(request.getOpenTime());
+        restaurant.setCloseTime(request.getCloseTime());
+
+        return RestaurantMapper.toOwnerResponse(restaurantRepository.save(restaurant));
+    }
+
+    /** Pause/resume the storefront. Distinct from admin approval — see {@link Restaurant#getApprovalStatus()}. */
+    @Transactional
+    public OwnerRestaurantResponse updateAvailability(Long id, RestaurantAvailabilityRequest request) {
+        Restaurant restaurant = requireRestaurant(id);
+        restaurant.setOpenForOrders(request.getOpenForOrders());
+        return RestaurantMapper.toOwnerResponse(restaurantRepository.save(restaurant));
+    }
+
+    private void validateBusinessHours(LocalTime openTime, LocalTime closeTime) {
+        if (!closeTime.isAfter(openTime)) {
+            throw new InvalidRequestParameterException("closeTime must be after openTime");
+        }
     }
 
     private void validatePagination(int page, int size) {
