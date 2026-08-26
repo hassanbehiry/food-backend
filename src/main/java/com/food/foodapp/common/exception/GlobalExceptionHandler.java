@@ -167,6 +167,24 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
     }
 
+    @ExceptionHandler(MaintenanceModeException.class)
+    public ResponseEntity<ErrorResponse> handleMaintenanceMode(MaintenanceModeException ex) {
+        ErrorResponse error = ErrorResponse.builder()
+                .status(HttpStatus.SERVICE_UNAVAILABLE.value())
+                .message(ex.getMessage())
+                .build();
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(error);
+    }
+
+    @ExceptionHandler(RestaurantRegistrationClosedException.class)
+    public ResponseEntity<ErrorResponse> handleRestaurantRegistrationClosed(RestaurantRegistrationClosedException ex) {
+        ErrorResponse error = ErrorResponse.builder()
+                .status(HttpStatus.FORBIDDEN.value())
+                .message(ex.getMessage())
+                .build();
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(error);
+    }
+
     @ExceptionHandler(InvalidRequestParameterException.class)
     public ResponseEntity<ErrorResponse> handleInvalidRequestParameter(InvalidRequestParameterException ex) {
         ErrorResponse error = ErrorResponse.builder()

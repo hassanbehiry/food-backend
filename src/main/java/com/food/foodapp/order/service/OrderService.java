@@ -12,6 +12,7 @@ import com.food.foodapp.common.exception.AddressNotFoundException;
 import com.food.foodapp.common.exception.CartEmptyException;
 import com.food.foodapp.common.exception.InvalidOrderStatusTransitionException;
 import com.food.foodapp.common.exception.InvalidRequestParameterException;
+import com.food.foodapp.common.exception.MaintenanceModeException;
 import com.food.foodapp.common.exception.MenuItemUnavailableException;
 import com.food.foodapp.common.exception.OrderNotFoundException;
 import com.food.foodapp.common.exception.RestaurantNotFoundException;
@@ -39,6 +40,7 @@ import com.food.foodapp.order.repository.OrderItemCount;
 import com.food.foodapp.order.repository.OrderRepository;
 import com.food.foodapp.restaurant.entity.Restaurant;
 import com.food.foodapp.restaurant.service.RestaurantService;
+import com.food.foodapp.settings.service.PlatformSettingsService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -118,6 +120,7 @@ public class OrderService {
     private final UserContext userContext;
     private final RestaurantService restaurantService;
     private final CouponService couponService;
+    private final PlatformSettingsService platformSettingsService;
 
     @Transactional(readOnly = true)
     public CheckoutResponse previewCheckout(CheckoutRequest request) {
@@ -385,8 +388,16 @@ public class OrderService {
      * from the already-freshly-loaded {@code cart}, validates the address belongs to the caller,
      * and validates the payment method — then recomputes subtotal/delivery/discount/total from
      * that, never from anything the caller sent.
+     * <p>
+     * Also the single choke point for {@link PlatformSettingsService#isMaintenanceModeEnabled()}:
+     * both {@link #previewCheckout} and {@link #placeOrder} refuse to proceed while the admin has
+     * maintenance mode enabled.
      */
     private OrderComputation computeOrder(CheckoutRequest request, Cart cart, Long customerId) {
+        if (platformSettingsService.isMaintenanceModeEnabled()) {
+            throw new MaintenanceModeException("Ordering is temporarily disabled for maintenance");
+        }
+
         Restaurant restaurant = cart.getRestaurant();
         if (restaurant == null || !RestaurantService.isCustomerVisible(restaurant)) {
             throw new RestaurantNotFoundException("Restaurant not found");

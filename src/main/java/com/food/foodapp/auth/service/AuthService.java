@@ -4,11 +4,14 @@ import com.food.foodapp.auth.dto.AuthResponse;
 import com.food.foodapp.auth.dto.LoginRequest;
 import com.food.foodapp.auth.dto.RegisterRequest;
 import com.food.foodapp.auth.dto.UserResponse;
+import com.food.foodapp.auth.entity.Role;
 import com.food.foodapp.auth.entity.User;
 import com.food.foodapp.auth.jwt.JwtUtil;
 import com.food.foodapp.auth.repository.UserRepository;
 import com.food.foodapp.common.exception.DuplicateEmailException;
 import com.food.foodapp.common.exception.InvalidCredentialsException;
+import com.food.foodapp.common.exception.RestaurantRegistrationClosedException;
+import com.food.foodapp.settings.service.PlatformSettingsService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -24,14 +27,23 @@ public class AuthService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtUtil jwtUtil;
+    private final PlatformSettingsService platformSettingsService;
 
     /**
      * Registers a new user.
      * Flow: validate → normalize email → check duplicate → hash password → save.
      * Returns AuthResponse with message only (no JWT, no user data).
+     * <p>
+     * {@code OWNER} sign-up is additionally gated by the admin-controlled
+     * {@link PlatformSettingsService#isRestaurantRegistrationAllowed()} toggle — {@code CUSTOMER}
+     * sign-up is never affected by it.
      */
     @Transactional
     public AuthResponse register(RegisterRequest request) {
+        if (request.getRole() == Role.OWNER && !platformSettingsService.isRestaurantRegistrationAllowed()) {
+            throw new RestaurantRegistrationClosedException("Restaurant registration is currently closed");
+        }
+
         // Normalize email: lowercase + trim
         String normalizedEmail = request.getEmail().trim().toLowerCase();
 
