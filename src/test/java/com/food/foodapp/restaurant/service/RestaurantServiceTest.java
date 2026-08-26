@@ -1,7 +1,10 @@
 package com.food.foodapp.restaurant.service;
 
 import com.food.foodapp.common.exception.InvalidRequestParameterException;
+import com.food.foodapp.common.exception.InvalidRestaurantApprovalTransitionException;
 import com.food.foodapp.common.exception.RestaurantNotFoundException;
+import com.food.foodapp.restaurant.dto.AdminRestaurantListResponse;
+import com.food.foodapp.restaurant.dto.AdminRestaurantResponse;
 import com.food.foodapp.restaurant.dto.OwnerRestaurantResponse;
 import com.food.foodapp.restaurant.dto.RestaurantAvailabilityRequest;
 import com.food.foodapp.restaurant.dto.RestaurantDetailResponse;
@@ -18,6 +21,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
@@ -30,6 +34,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -239,6 +244,146 @@ class RestaurantServiceTest {
 
         assertThatThrownBy(() -> restaurantService.updateAvailability(99L, request))
                 .isInstanceOf(RestaurantNotFoundException.class);
+    }
+
+    @Test
+    void listRestaurantsForAdmin_appliesApprovalStatusFilter() {
+        Restaurant restaurant = approvedOpenRestaurant();
+        restaurant.setApprovalStatus(RestaurantApprovalStatus.PENDING);
+        Pageable pageable = Pageable.ofSize(20);
+        when(restaurantRepository.findAll(any(Specification.class), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(restaurant), pageable, 1));
+
+        AdminRestaurantListResponse response = restaurantService.listRestaurantsForAdmin("pending", 0, 20);
+
+        assertThat(response.getRestaurants()).hasSize(1);
+        assertThat(response.getRestaurants().get(0).getApprovalStatus()).isEqualTo(RestaurantApprovalStatus.PENDING);
+        assertThat(response.getTotalElements()).isEqualTo(1);
+    }
+
+    @Test
+    void listRestaurantsForAdmin_rejectsInvalidStatusValue() {
+        assertThatThrownBy(() -> restaurantService.listRestaurantsForAdmin("banana", 0, 20))
+                .isInstanceOf(InvalidRequestParameterException.class);
+    }
+
+    @Test
+    void listRestaurantsForAdmin_listsEveryStatus_whenNoFilterGiven() {
+        Pageable pageable = PageRequest.of(0, 20, Sort.by(Sort.Direction.ASC, "id"));
+        when(restaurantRepository.findAll((Specification<Restaurant>) null, pageable))
+                .thenReturn(new PageImpl<>(List.of(), pageable, 0));
+
+        restaurantService.listRestaurantsForAdmin(null, 0, 20);
+
+        verify(restaurantRepository).findAll((Specification<Restaurant>) null, pageable);
+    }
+
+    @Test
+    void getAdminRestaurant_returnsResponse_regardlessOfApprovalOrOpenStatus() {
+        Restaurant restaurant = approvedOpenRestaurant();
+        restaurant.setApprovalStatus(RestaurantApprovalStatus.SUSPENDED);
+        when(restaurantRepository.findById(1L)).thenReturn(Optional.of(restaurant));
+
+        AdminRestaurantResponse response = restaurantService.getAdminRestaurant(1L);
+
+        assertThat(response.getApprovalStatus()).isEqualTo(RestaurantApprovalStatus.SUSPENDED);
+    }
+
+    @Test
+    void getAdminRestaurant_throwsNotFound_whenMissing() {
+        when(restaurantRepository.findById(99L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> restaurantService.getAdminRestaurant(99L))
+                .isInstanceOf(RestaurantNotFoundException.class);
+    }
+
+    @Test
+    void approveRestaurant_movesPendingToApproved() {
+        Restaurant restaurant = approvedOpenRestaurant();
+        restaurant.setApprovalStatus(RestaurantApprovalStatus.PENDING);
+        when(restaurantRepository.findById(1L)).thenReturn(Optional.of(restaurant));
+        when(restaurantRepository.save(any(Restaurant.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        AdminRestaurantResponse response = restaurantService.approveRestaurant(1L);
+
+        assertThat(response.getApprovalStatus()).isEqualTo(RestaurantApprovalStatus.APPROVED);
+    }
+
+    @Test
+    void approveRestaurant_restoresASuspendedRestaurant() {
+        Restaurant restaurant = approvedOpenRestaurant();
+        restaurant.setApprovalStatus(RestaurantApprovalStatus.SUSPENDED);
+        when(restaurantRepository.findById(1L)).thenReturn(Optional.of(restaurant));
+        when(restaurantRepository.save(any(Restaurant.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        AdminRestaurantResponse response = restaurantService.approveRestaurant(1L);
+
+        assertThat(response.getApprovalStatus()).isEqualTo(RestaurantApprovalStatus.APPROVED);
+    }
+
+    @Test
+    void approveRestaurant_rejectsAlreadyApprovedRestaurant() {
+        Restaurant restaurant = approvedOpenRestaurant();
+        restaurant.setApprovalStatus(RestaurantApprovalStatus.APPROVED);
+        when(restaurantRepository.findById(1L)).thenReturn(Optional.of(restaurant));
+
+        assertThatThrownBy(() -> restaurantService.approveRestaurant(1L))
+                .isInstanceOf(InvalidRestaurantApprovalTransitionException.class);
+        verify(restaurantRepository, never()).save(any());
+    }
+
+    @Test
+    void approveRestaurant_throwsNotFound_whenMissing() {
+        when(restaurantRepository.findById(99L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> restaurantService.approveRestaurant(99L))
+                .isInstanceOf(RestaurantNotFoundException.class);
+    }
+
+    @Test
+    void rejectRestaurant_movesPendingToRejected() {
+        Restaurant restaurant = approvedOpenRestaurant();
+        restaurant.setApprovalStatus(RestaurantApprovalStatus.PENDING);
+        when(restaurantRepository.findById(1L)).thenReturn(Optional.of(restaurant));
+        when(restaurantRepository.save(any(Restaurant.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        AdminRestaurantResponse response = restaurantService.rejectRestaurant(1L);
+
+        assertThat(response.getApprovalStatus()).isEqualTo(RestaurantApprovalStatus.REJECTED);
+    }
+
+    @Test
+    void rejectRestaurant_rejectsAlreadyApprovedRestaurant() {
+        Restaurant restaurant = approvedOpenRestaurant();
+        restaurant.setApprovalStatus(RestaurantApprovalStatus.APPROVED);
+        when(restaurantRepository.findById(1L)).thenReturn(Optional.of(restaurant));
+
+        assertThatThrownBy(() -> restaurantService.rejectRestaurant(1L))
+                .isInstanceOf(InvalidRestaurantApprovalTransitionException.class);
+        verify(restaurantRepository, never()).save(any());
+    }
+
+    @Test
+    void suspendRestaurant_movesApprovedToSuspended() {
+        Restaurant restaurant = approvedOpenRestaurant();
+        restaurant.setApprovalStatus(RestaurantApprovalStatus.APPROVED);
+        when(restaurantRepository.findById(1L)).thenReturn(Optional.of(restaurant));
+        when(restaurantRepository.save(any(Restaurant.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        AdminRestaurantResponse response = restaurantService.suspendRestaurant(1L);
+
+        assertThat(response.getApprovalStatus()).isEqualTo(RestaurantApprovalStatus.SUSPENDED);
+    }
+
+    @Test
+    void suspendRestaurant_rejectsPendingRestaurant() {
+        Restaurant restaurant = approvedOpenRestaurant();
+        restaurant.setApprovalStatus(RestaurantApprovalStatus.PENDING);
+        when(restaurantRepository.findById(1L)).thenReturn(Optional.of(restaurant));
+
+        assertThatThrownBy(() -> restaurantService.suspendRestaurant(1L))
+                .isInstanceOf(InvalidRestaurantApprovalTransitionException.class);
+        verify(restaurantRepository, never()).save(any());
     }
 
     private RestaurantSettingsUpdateRequest settingsRequest() {

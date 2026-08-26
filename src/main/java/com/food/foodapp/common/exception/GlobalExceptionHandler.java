@@ -140,6 +140,15 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
     }
 
+    @ExceptionHandler(InvalidRestaurantApprovalTransitionException.class)
+    public ResponseEntity<ErrorResponse> handleInvalidRestaurantApprovalTransition(InvalidRestaurantApprovalTransitionException ex) {
+        ErrorResponse error = ErrorResponse.builder()
+                .status(HttpStatus.CONFLICT.value())
+                .message(ex.getMessage())
+                .build();
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
+    }
+
     @ExceptionHandler(CouponNotFoundException.class)
     public ResponseEntity<ErrorResponse> handleCouponNotFound(CouponNotFoundException ex) {
         ErrorResponse error = ErrorResponse.builder()

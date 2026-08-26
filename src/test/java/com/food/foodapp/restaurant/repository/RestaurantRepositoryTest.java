@@ -65,6 +65,26 @@ class RestaurantRepositoryTest {
     }
 
     @Test
+    void findAll_withApprovalStatusSpecification_returnsOnlyMatchingStatus() {
+        Restaurant pending = restaurant("Pending Place-" + System.nanoTime(), RestaurantApprovalStatus.PENDING, true, Set.of());
+        Restaurant approved = restaurant("Approved Place-" + System.nanoTime(), RestaurantApprovalStatus.APPROVED, true, Set.of());
+        Restaurant suspended = restaurant("Suspended Place-" + System.nanoTime(), RestaurantApprovalStatus.SUSPENDED, true, Set.of());
+
+        entityManager.persist(pending);
+        entityManager.persist(approved);
+        entityManager.persist(suspended);
+        entityManager.flush();
+        entityManager.clear();
+
+        List<Restaurant> results = restaurantRepository
+                .findAll(RestaurantSpecifications.hasApprovalStatus(RestaurantApprovalStatus.SUSPENDED),
+                        PageRequest.of(0, 10, Sort.by("id")))
+                .getContent();
+
+        assertThat(results).extracting(Restaurant::getName).containsExactly(suspended.getName());
+    }
+
+    @Test
     void findByIdWithCategories_loadsCategoriesWithoutLazyInitializationException() {
         Category pizza = category("بيتزا-" + System.nanoTime());
         entityManager.persist(pizza);
