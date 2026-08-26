@@ -2,12 +2,15 @@ package com.food.foodapp.order.service;
 
 import com.food.foodapp.address.entity.Address;
 import com.food.foodapp.address.repository.AddressRepository;
+import com.food.foodapp.auth.entity.User;
+import com.food.foodapp.auth.entity.UserStatus;
 import com.food.foodapp.auth.repository.UserRepository;
 import com.food.foodapp.auth.security.UserContext;
 import com.food.foodapp.cart.entity.Cart;
 import com.food.foodapp.cart.entity.CartItem;
 import com.food.foodapp.cart.repository.CartItemRepository;
 import com.food.foodapp.cart.repository.CartRepository;
+import com.food.foodapp.common.exception.AccountSuspendedException;
 import com.food.foodapp.common.exception.AddressNotFoundException;
 import com.food.foodapp.common.exception.CartEmptyException;
 import com.food.foodapp.common.exception.InvalidOrderStatusTransitionException;
@@ -16,6 +19,7 @@ import com.food.foodapp.common.exception.MaintenanceModeException;
 import com.food.foodapp.common.exception.MenuItemUnavailableException;
 import com.food.foodapp.common.exception.OrderNotFoundException;
 import com.food.foodapp.common.exception.RestaurantNotFoundException;
+import com.food.foodapp.common.exception.UnauthenticatedException;
 import com.food.foodapp.coupon.entity.Coupon;
 import com.food.foodapp.coupon.service.CouponService;
 import com.food.foodapp.coupon.service.CouponService.CouponApplication;
@@ -382,6 +386,14 @@ public class OrderService {
                 .orElseThrow(() -> new OrderNotFoundException("Order not found: " + orderId));
     }
 
+    private void requireActiveCustomer(Long customerId) {
+        User customer = userRepository.findById(customerId)
+                .orElseThrow(() -> new UnauthenticatedException("Authentication required"));
+        if (customer.getStatus() == UserStatus.SUSPENDED) {
+            throw new AccountSuspendedException("This account has been suspended");
+        }
+    }
+
     /**
      * Shared by {@link #previewCheckout} and {@link #placeOrder}: re-validates restaurant
      * availability, re-validates every item is still orderable, re-reads authoritative prices
@@ -389,14 +401,17 @@ public class OrderService {
      * and validates the payment method — then recomputes subtotal/delivery/discount/total from
      * that, never from anything the caller sent.
      * <p>
-     * Also the single choke point for {@link PlatformSettingsService#isMaintenanceModeEnabled()}:
-     * both {@link #previewCheckout} and {@link #placeOrder} refuse to proceed while the admin has
-     * maintenance mode enabled.
+     * Also the single choke point for {@link PlatformSettingsService#isMaintenanceModeEnabled()}
+     * and for the customer's {@link UserStatus}: both {@link #previewCheckout} and
+     * {@link #placeOrder} refuse to proceed while the admin has maintenance mode enabled, or once
+     * an admin has suspended the calling customer's account — even for a session whose JWT was
+     * issued before the suspension.
      */
     private OrderComputation computeOrder(CheckoutRequest request, Cart cart, Long customerId) {
         if (platformSettingsService.isMaintenanceModeEnabled()) {
             throw new MaintenanceModeException("Ordering is temporarily disabled for maintenance");
         }
+        requireActiveCustomer(customerId);
 
         Restaurant restaurant = cart.getRestaurant();
         if (restaurant == null || !RestaurantService.isCustomerVisible(restaurant)) {
