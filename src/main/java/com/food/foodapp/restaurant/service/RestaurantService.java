@@ -87,7 +87,7 @@ public class RestaurantService {
                 .orElseThrow(() -> new RestaurantNotFoundException("Restaurant not found: " + id));
     }
 
-    private static boolean isCustomerVisible(Restaurant restaurant) {
+    public static boolean isCustomerVisible(Restaurant restaurant) {
         return restaurant.getApprovalStatus() == RestaurantApprovalStatus.APPROVED && restaurant.isOpenForOrders();
     }
 
