@@ -22,6 +22,7 @@ import org.hibernate.annotations.UpdateTimestamp;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -36,7 +37,8 @@ import java.util.Set;
 @Table(name = "restaurants")
 @Check(constraints = "estimated_delivery_max_minutes >= estimated_delivery_min_minutes "
         + "AND delivery_fee >= 0 AND minimum_order >= 0 "
-        + "AND rating_average >= 0 AND rating_average <= 5 AND review_count >= 0")
+        + "AND rating_average >= 0 AND rating_average <= 5 AND review_count >= 0 "
+        + "AND (open_time IS NULL OR close_time IS NULL OR close_time > open_time)")
 @Getter
 @Setter
 @NoArgsConstructor
@@ -76,6 +78,14 @@ public class Restaurant {
 
     @Column(name = "estimated_delivery_max_minutes", nullable = false)
     private int estimatedDeliveryMaxMinutes;
+
+    /** Daily opening time. Owner-editable; {@code null} until the owner sets business hours. */
+    @Column(name = "open_time")
+    private LocalTime openTime;
+
+    /** Daily closing time. Owner-editable; {@code null} until the owner sets business hours. */
+    @Column(name = "close_time")
+    private LocalTime closeTime;
 
     /** "Accepting orders now" — owner-controlled. Not the admin approval/suspension state. */
     @Column(name = "is_open_for_orders", nullable = false)
