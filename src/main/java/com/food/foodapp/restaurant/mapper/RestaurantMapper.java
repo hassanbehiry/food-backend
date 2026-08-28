@@ -1,0 +1,62 @@
+package com.food.foodapp.restaurant.mapper;
+
+import com.food.foodapp.category.dto.CategoryResponse;
+import com.food.foodapp.category.mapper.CategoryMapper;
+import com.food.foodapp.restaurant.dto.RestaurantDetailResponse;
+import com.food.foodapp.restaurant.dto.RestaurantSummaryResponse;
+import com.food.foodapp.restaurant.entity.Restaurant;
+
+import java.util.Comparator;
+import java.util.List;
+
+public final class RestaurantMapper {
+
+    private RestaurantMapper() {
+    }
+
+    public static RestaurantSummaryResponse toSummary(Restaurant restaurant) {
+        return RestaurantSummaryResponse.builder()
+                .id(restaurant.getId())
+                .name(restaurant.getName())
+                .cuisine(restaurant.getCuisine())
+                .logoUrl(restaurant.getLogoUrl())
+                .coverImageUrl(restaurant.getCoverImageUrl())
+                .ratingAverage(restaurant.getRatingAverage())
+                .reviewCount(restaurant.getReviewCount())
+                .deliveryFee(restaurant.getDeliveryFee())
+                .minimumOrder(restaurant.getMinimumOrder())
+                .estimatedDeliveryMinMinutes(restaurant.getEstimatedDeliveryMinMinutes())
+                .estimatedDeliveryMaxMinutes(restaurant.getEstimatedDeliveryMaxMinutes())
+                .estimatedDeliveryLabel(formatDeliveryLabel(restaurant))
+                .openForOrders(restaurant.isOpenForOrders())
+                .build();
+    }
+
+    public static RestaurantDetailResponse toDetail(Restaurant restaurant) {
+        List<CategoryResponse> categories = restaurant.getCategories().stream()
+                .map(CategoryMapper::toResponse)
+                .sorted(Comparator.comparing(CategoryResponse::getName))
+                .toList();
+
+        return RestaurantDetailResponse.builder()
+                .id(restaurant.getId())
+                .name(restaurant.getName())
+                .cuisine(restaurant.getCuisine())
+                .logoUrl(restaurant.getLogoUrl())
+                .coverImageUrl(restaurant.getCoverImageUrl())
+                .ratingAverage(restaurant.getRatingAverage())
+                .reviewCount(restaurant.getReviewCount())
+                .deliveryFee(restaurant.getDeliveryFee())
+                .minimumOrder(restaurant.getMinimumOrder())
+                .estimatedDeliveryMinMinutes(restaurant.getEstimatedDeliveryMinMinutes())
+                .estimatedDeliveryMaxMinutes(restaurant.getEstimatedDeliveryMaxMinutes())
+                .estimatedDeliveryLabel(formatDeliveryLabel(restaurant))
+                .openForOrders(restaurant.isOpenForOrders())
+                .categories(categories)
+                .build();
+    }
+
+    private static String formatDeliveryLabel(Restaurant restaurant) {
+        return restaurant.getEstimatedDeliveryMinMinutes() + "-" + restaurant.getEstimatedDeliveryMaxMinutes() + " دقيقة";
+    }
+}
