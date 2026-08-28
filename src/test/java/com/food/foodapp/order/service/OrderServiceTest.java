@@ -20,19 +20,28 @@ import com.food.foodapp.menu.entity.MenuItem;
 import com.food.foodapp.order.dto.CheckoutRequest;
 import com.food.foodapp.order.dto.CheckoutResponse;
 import com.food.foodapp.order.dto.OrderResponse;
+import com.food.foodapp.order.dto.OrderTrackingResponse;
+import com.food.foodapp.order.dto.OwnerDashboardResponse;
+import com.food.foodapp.order.dto.OwnerOrderListResponse;
+import com.food.foodapp.order.dto.OwnerOrderResponse;
 import com.food.foodapp.order.entity.Order;
 import com.food.foodapp.order.entity.OrderStatus;
 import com.food.foodapp.order.entity.PaymentMethod;
 import com.food.foodapp.order.repository.OrderRepository;
 import com.food.foodapp.restaurant.entity.Restaurant;
 import com.food.foodapp.restaurant.entity.RestaurantApprovalStatus;
+import com.food.foodapp.restaurant.service.RestaurantService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -40,7 +49,11 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -65,13 +78,16 @@ class OrderServiceTest {
     @Mock
     private UserContext userContext;
 
+    @Mock
+    private RestaurantService restaurantService;
+
     private OrderService orderService;
 
     @BeforeEach
     void setUp() {
         orderService = new OrderService(cartRepository, cartItemRepository, addressRepository, userRepository,
-                orderRepository, userContext);
-        when(userContext.getCurrentUserId()).thenReturn(1L);
+                orderRepository, userContext, restaurantService);
+        lenient().when(userContext.getCurrentUserId()).thenReturn(1L);
     }
 
     @Test
@@ -164,7 +180,7 @@ class OrderServiceTest {
 
         assertThat(response.getId()).isEqualTo(500L);
         assertThat(response.getOrderNumber()).startsWith("ORD-");
-        assertThat(response.getStatus()).isEqualTo(OrderStatus.PENDING);
+        assertThat(response.getStatus()).isEqualTo(OrderStatus.NEW);
         assertThat(response.getPaymentMethod()).isEqualTo(PaymentMethod.CASH_ON_DELIVERY);
         assertThat(response.getTotal()).isEqualByComparingTo(BigDecimal.valueOf(112));
         assertThat(response.getItems()).hasSize(1);
@@ -186,7 +202,7 @@ class OrderServiceTest {
 
     @Test
     void getOrder_returnsOrder_whenOwnedByCaller() {
-        Order order = existingOrder(700L, OrderStatus.PENDING);
+        Order order = existingOrder(700L, OrderStatus.NEW);
         when(orderRepository.findByIdAndCustomerIdWithItems(700L, 1L)).thenReturn(Optional.of(order));
 
         OrderResponse response = orderService.getOrder(700L);
@@ -203,7 +219,7 @@ class OrderServiceTest {
 
     @Test
     void cancelOrder_cancels_whenStillPending() {
-        Order order = existingOrder(700L, OrderStatus.PENDING);
+        Order order = existingOrder(700L, OrderStatus.NEW);
         when(orderRepository.findByIdAndCustomerIdWithItems(700L, 1L)).thenReturn(Optional.of(order));
 
         OrderResponse response = orderService.cancelOrder(700L);
@@ -237,6 +253,195 @@ class OrderServiceTest {
         when(orderRepository.findByIdAndCustomerIdWithItems(700L, 1L)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> orderService.cancelOrder(700L)).isInstanceOf(OrderNotFoundException.class);
+    }
+
+    @Test
+    void trackOrder_returnsTrackingResponse_whenOwnedByCaller() {
+        Order order = existingOrder(700L, OrderStatus.PREPARING);
+        when(orderRepository.findByIdAndCustomerIdWithItems(700L, 1L)).thenReturn(Optional.of(order));
+
+        OrderTrackingResponse response = orderService.trackOrder(700L);
+
+        assertThat(response.getOrderId()).isEqualTo(700L);
+        assertThat(response.getStatus()).isEqualTo(OrderStatus.PREPARING);
+    }
+
+    @Test
+    void trackOrder_throwsNotFound_whenNotOwnedByCaller() {
+        when(orderRepository.findByIdAndCustomerIdWithItems(700L, 1L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> orderService.trackOrder(700L)).isInstanceOf(OrderNotFoundException.class);
+    }
+
+    @Test
+    void updateOrderStatus_movesNewOrderStraightToPreparing_hoppingThroughConfirmed() {
+        Order order = existingOrder(700L, OrderStatus.NEW);
+        when(orderRepository.findByIdAndRestaurantIdWithItems(700L, 5L)).thenReturn(Optional.of(order));
+
+        OrderResponse response = orderService.updateOrderStatus(5L, 700L, "PREPARING");
+
+        assertThat(response.getStatus()).isEqualTo(OrderStatus.PREPARING);
+        verify(orderRepository, times(2)).save(order);
+    }
+
+    @Test
+    void updateOrderStatus_movesPreparingToOnTheWay_directly() {
+        Order order = existingOrder(700L, OrderStatus.PREPARING);
+        when(orderRepository.findByIdAndRestaurantIdWithItems(700L, 5L)).thenReturn(Optional.of(order));
+
+        OrderResponse response = orderService.updateOrderStatus(5L, 700L, "on_the_way");
+
+        assertThat(response.getStatus()).isEqualTo(OrderStatus.ON_THE_WAY);
+    }
+
+    @Test
+    void updateOrderStatus_rejectsIllegalTransition() {
+        Order order = existingOrder(700L, OrderStatus.NEW);
+        when(orderRepository.findByIdAndRestaurantIdWithItems(700L, 5L)).thenReturn(Optional.of(order));
+
+        assertThatThrownBy(() -> orderService.updateOrderStatus(5L, 700L, "DELIVERED"))
+                .isInstanceOf(InvalidOrderStatusTransitionException.class);
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.NEW);
+    }
+
+    @Test
+    void updateOrderStatus_rejectsUnknownStatusValue() {
+        Order order = existingOrder(700L, OrderStatus.NEW);
+        when(orderRepository.findByIdAndRestaurantIdWithItems(700L, 5L)).thenReturn(Optional.of(order));
+
+        assertThatThrownBy(() -> orderService.updateOrderStatus(5L, 700L, "SHIPPED"))
+                .isInstanceOf(InvalidRequestParameterException.class);
+    }
+
+    @Test
+    void updateOrderStatus_rejectsNewAndConfirmedAsExplicitOwnerTargets() {
+        Order order = existingOrder(700L, OrderStatus.NEW);
+        when(orderRepository.findByIdAndRestaurantIdWithItems(700L, 5L)).thenReturn(Optional.of(order));
+
+        assertThatThrownBy(() -> orderService.updateOrderStatus(5L, 700L, "NEW"))
+                .isInstanceOf(InvalidRequestParameterException.class);
+        assertThatThrownBy(() -> orderService.updateOrderStatus(5L, 700L, "CONFIRMED"))
+                .isInstanceOf(InvalidRequestParameterException.class);
+    }
+
+    @Test
+    void updateOrderStatus_throwsNotFound_whenOrderNotOwnedByRestaurant() {
+        when(orderRepository.findByIdAndRestaurantIdWithItems(700L, 5L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> orderService.updateOrderStatus(5L, 700L, "PREPARING"))
+                .isInstanceOf(OrderNotFoundException.class);
+    }
+
+    @Test
+    void listOrdersForOwner_returnsPaginatedSummaries_whenNoStatusFilter() {
+        when(restaurantService.requireRestaurant(5L)).thenReturn(visibleRestaurant());
+        Order order = existingOrder(700L, OrderStatus.NEW);
+        order.setCustomer(customer("Ali"));
+        when(orderRepository.findByRestaurantIdAndOptionalStatus(eq(5L), isNull(), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(order), Pageable.ofSize(20), 1));
+
+        OwnerOrderListResponse response = orderService.listOrdersForOwner(5L, null, 0, 20);
+
+        assertThat(response.getTotalElements()).isEqualTo(1);
+        assertThat(response.getOrders()).hasSize(1);
+        assertThat(response.getOrders().get(0).getCustomerName()).isEqualTo("Ali");
+    }
+
+    @Test
+    void listOrdersForOwner_filtersByStatus() {
+        when(restaurantService.requireRestaurant(5L)).thenReturn(visibleRestaurant());
+        when(orderRepository.findByRestaurantIdAndOptionalStatus(eq(5L), eq(OrderStatus.PREPARING), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(), Pageable.ofSize(20), 0));
+
+        orderService.listOrdersForOwner(5L, "preparing", 0, 20);
+
+        verify(orderRepository).findByRestaurantIdAndOptionalStatus(eq(5L), eq(OrderStatus.PREPARING), any(Pageable.class));
+    }
+
+    @Test
+    void listOrdersForOwner_rejectsConfirmedAndCancelledAsFilterValues() {
+        when(restaurantService.requireRestaurant(5L)).thenReturn(visibleRestaurant());
+
+        assertThatThrownBy(() -> orderService.listOrdersForOwner(5L, "CONFIRMED", 0, 20))
+                .isInstanceOf(InvalidRequestParameterException.class);
+        assertThatThrownBy(() -> orderService.listOrdersForOwner(5L, "CANCELLED", 0, 20))
+                .isInstanceOf(InvalidRequestParameterException.class);
+    }
+
+    @Test
+    void listOrdersForOwner_rejectsUnknownStatusValue() {
+        when(restaurantService.requireRestaurant(5L)).thenReturn(visibleRestaurant());
+
+        assertThatThrownBy(() -> orderService.listOrdersForOwner(5L, "SHIPPED", 0, 20))
+                .isInstanceOf(InvalidRequestParameterException.class);
+    }
+
+    @Test
+    void listOrdersForOwner_rejectsInvalidPagination() {
+        when(restaurantService.requireRestaurant(5L)).thenReturn(visibleRestaurant());
+
+        assertThatThrownBy(() -> orderService.listOrdersForOwner(5L, null, -1, 20))
+                .isInstanceOf(InvalidRequestParameterException.class);
+        assertThatThrownBy(() -> orderService.listOrdersForOwner(5L, null, 0, 0))
+                .isInstanceOf(InvalidRequestParameterException.class);
+        assertThatThrownBy(() -> orderService.listOrdersForOwner(5L, null, 0, 51))
+                .isInstanceOf(InvalidRequestParameterException.class);
+    }
+
+    @Test
+    void listOrdersForOwner_throwsNotFound_whenRestaurantDoesNotExist() {
+        when(restaurantService.requireRestaurant(99L)).thenThrow(new RestaurantNotFoundException("Restaurant not found: 99"));
+
+        assertThatThrownBy(() -> orderService.listOrdersForOwner(99L, null, 0, 20))
+                .isInstanceOf(RestaurantNotFoundException.class);
+    }
+
+    @Test
+    void getOrderForOwner_returnsDetail_whenOwnedByRestaurant() {
+        Order order = existingOrder(700L, OrderStatus.NEW);
+        order.setCustomer(customer("Ali"));
+        when(orderRepository.findByIdAndRestaurantIdWithItems(700L, 5L)).thenReturn(Optional.of(order));
+
+        OwnerOrderResponse response = orderService.getOrderForOwner(5L, 700L);
+
+        assertThat(response.getId()).isEqualTo(700L);
+        assertThat(response.getCustomerName()).isEqualTo("Ali");
+    }
+
+    @Test
+    void getOrderForOwner_throwsNotFound_whenOrderBelongsToAnotherRestaurant() {
+        when(orderRepository.findByIdAndRestaurantIdWithItems(700L, 5L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> orderService.getOrderForOwner(5L, 700L)).isInstanceOf(OrderNotFoundException.class);
+    }
+
+    @Test
+    void getDashboard_returnsStatsAndRecentOrders() {
+        Restaurant restaurant = visibleRestaurant();
+        when(restaurantService.requireRestaurant(5L)).thenReturn(restaurant);
+        when(orderRepository.countByRestaurantIdAndStatus(5L, OrderStatus.NEW)).thenReturn(3L);
+        when(orderRepository.countByRestaurantIdAndStatus(5L, OrderStatus.PREPARING)).thenReturn(2L);
+        when(orderRepository.countByRestaurantIdAndStatus(5L, OrderStatus.ON_THE_WAY)).thenReturn(1L);
+        when(orderRepository.countByRestaurantIdAndStatus(5L, OrderStatus.DELIVERED)).thenReturn(10L);
+        when(orderRepository.countByRestaurantId(5L)).thenReturn(16L);
+        Order order = existingOrder(700L, OrderStatus.NEW);
+        order.setCustomer(customer("Ali"));
+        when(orderRepository.findByRestaurantIdAndOptionalStatus(eq(5L), isNull(), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(order), Pageable.ofSize(5), 1));
+
+        OwnerDashboardResponse response = orderService.getDashboard(5L);
+
+        assertThat(response.getRestaurantId()).isEqualTo(5L);
+        assertThat(response.getStats().getNewCount()).isEqualTo(3L);
+        assertThat(response.getStats().getTotalCount()).isEqualTo(16L);
+        assertThat(response.getRecentOrders()).hasSize(1);
+    }
+
+    @Test
+    void getDashboard_throwsNotFound_whenRestaurantDoesNotExist() {
+        when(restaurantService.requireRestaurant(99L)).thenThrow(new RestaurantNotFoundException("Restaurant not found: 99"));
+
+        assertThatThrownBy(() -> orderService.getDashboard(99L)).isInstanceOf(RestaurantNotFoundException.class);
     }
 
     private CheckoutRequest checkoutRequest(Long addressId, String paymentMethod) {
@@ -289,6 +494,12 @@ class OrderServiceTest {
         return address;
     }
 
+    private User customer(String name) {
+        User customer = new User();
+        customer.setName(name);
+        return customer;
+    }
+
     private Order existingOrder(Long id, OrderStatus status) {
         Order order = new Order();
         order.setId(id);
@@ -302,6 +513,7 @@ class OrderServiceTest {
         order.setTotal(BigDecimal.valueOf(112));
         order.setPaymentMethod(PaymentMethod.CASH_ON_DELIVERY);
         order.setStatus(status);
+        order.setCreatedAt(LocalDateTime.now());
         return order;
     }
 }

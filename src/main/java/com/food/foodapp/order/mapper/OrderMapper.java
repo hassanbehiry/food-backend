@@ -7,15 +7,28 @@ import com.food.foodapp.cart.mapper.CartMapper;
 import com.food.foodapp.order.dto.CheckoutResponse;
 import com.food.foodapp.order.dto.OrderItemResponse;
 import com.food.foodapp.order.dto.OrderResponse;
+import com.food.foodapp.order.dto.OrderTrackingResponse;
+import com.food.foodapp.order.dto.OwnerDashboardResponse;
+import com.food.foodapp.order.dto.OwnerOrderResponse;
+import com.food.foodapp.order.dto.OwnerOrderStatsResponse;
+import com.food.foodapp.order.dto.OwnerOrderSummaryResponse;
+import com.food.foodapp.order.dto.TrackingStepResponse;
 import com.food.foodapp.order.entity.Order;
 import com.food.foodapp.order.entity.OrderItem;
+import com.food.foodapp.order.entity.OrderStatus;
 import com.food.foodapp.order.entity.PaymentMethod;
 import com.food.foodapp.restaurant.entity.Restaurant;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 
 public final class OrderMapper {
+
+    /** The customer-visible tracking milestones, in forward order. {@code CONFIRMED} is deliberately excluded — see {@link OrderStatus}. */
+    private static final List<OrderStatus> TRACKING_MILESTONES =
+            List.of(OrderStatus.NEW, OrderStatus.PREPARING, OrderStatus.ON_THE_WAY, OrderStatus.DELIVERED);
 
     private OrderMapper() {
     }
@@ -54,6 +67,96 @@ public final class OrderMapper {
                 .status(order.getStatus())
                 .createdAt(order.getCreatedAt())
                 .build();
+    }
+
+    /**
+     * {@code steps} is derived purely from {@code order.getStatus()} against
+     * {@link #TRACKING_MILESTONES}: a {@code CONFIRMED} order is rendered the same as {@code NEW}
+     * (accepting isn't a distinct dashboard step yet — see {@link OrderStatus}), and a
+     * {@code CANCELLED} order shows no step as completed or current, since {@code status} on the
+     * response already tells the caller it was cancelled.
+     */
+    public static OrderTrackingResponse toTracking(Order order) {
+        OrderStatus status = order.getStatus();
+        int currentRank = milestoneRank(status);
+
+        List<TrackingStepResponse> steps = new ArrayList<>();
+        for (int i = 0; i < TRACKING_MILESTONES.size(); i++) {
+            steps.add(TrackingStepResponse.builder()
+                    .status(TRACKING_MILESTONES.get(i))
+                    .completed(currentRank >= 0 && i <= currentRank)
+                    .current(currentRank >= 0 && i == currentRank)
+                    .build());
+        }
+
+        return OrderTrackingResponse.builder()
+                .orderId(order.getId())
+                .orderNumber(order.getOrderNumber())
+                .status(status)
+                .steps(steps)
+                .estimatedDeliveryAt(estimateDeliveryAt(order))
+                .statusUpdatedAt(order.getUpdatedAt())
+                .build();
+    }
+
+    /** One row of the owner dashboard's orders table — see {@link OwnerOrderSummaryResponse}. */
+    public static OwnerOrderSummaryResponse toOwnerSummary(Order order) {
+        return OwnerOrderSummaryResponse.builder()
+                .id(order.getId())
+                .orderNumber(order.getOrderNumber())
+                .customerName(order.getCustomer().getName())
+                .total(order.getTotal())
+                .status(order.getStatus())
+                .createdAt(order.getCreatedAt())
+                .build();
+    }
+
+    /** The owner order-detail view — {@link #toResponse} plus the customer's display name. */
+    public static OwnerOrderResponse toOwnerResponse(Order order) {
+        return OwnerOrderResponse.builder()
+                .id(order.getId())
+                .orderNumber(order.getOrderNumber())
+                .customerName(order.getCustomer().getName())
+                .items(order.getItems().stream().map(OrderMapper::toItemResponse).toList())
+                .deliveryAddress(AddressMapper.composeDetail(
+                        order.getDeliveryStreet(), order.getDeliveryCity(), order.getDeliveryPostalCode()))
+                .subtotal(order.getSubtotal())
+                .deliveryFee(order.getDeliveryFee())
+                .discount(order.getDiscount())
+                .total(order.getTotal())
+                .paymentMethod(order.getPaymentMethod())
+                .status(order.getStatus())
+                .createdAt(order.getCreatedAt())
+                .updatedAt(order.getUpdatedAt())
+                .build();
+    }
+
+    public static OwnerDashboardResponse toDashboard(Restaurant restaurant, OwnerOrderStatsResponse stats,
+                                                       List<OwnerOrderSummaryResponse> recentOrders) {
+        return OwnerDashboardResponse.builder()
+                .restaurantId(restaurant.getId())
+                .restaurantName(restaurant.getName())
+                .stats(stats)
+                .recentOrders(recentOrders)
+                .build();
+    }
+
+    private static int milestoneRank(OrderStatus status) {
+        return switch (status) {
+            case NEW, CONFIRMED -> 0;
+            case PREPARING -> 1;
+            case ON_THE_WAY -> 2;
+            case DELIVERED -> 3;
+            case CANCELLED -> -1;
+        };
+    }
+
+    private static LocalDateTime estimateDeliveryAt(Order order) {
+        if (order.getStatus() == OrderStatus.DELIVERED || order.getStatus() == OrderStatus.CANCELLED) {
+            return null;
+        }
+        Restaurant restaurant = order.getRestaurant();
+        return order.getCreatedAt().plusMinutes(restaurant.getEstimatedDeliveryMaxMinutes());
     }
 
     private static OrderItemResponse toItemResponse(OrderItem item) {

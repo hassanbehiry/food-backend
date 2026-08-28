@@ -17,6 +17,8 @@ import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
 import org.springframework.boot.jpa.test.autoconfigure.TestEntityManager;
 import org.hibernate.exception.ConstraintViolationException;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 
 import java.math.BigDecimal;
 import java.util.Optional;
@@ -97,6 +99,95 @@ class OrderRepositoryTest {
         }).isInstanceOf(ConstraintViolationException.class);
     }
 
+    @Test
+    void findByIdAndRestaurantIdWithItems_isEmpty_whenOrderBelongsToADifferentRestaurant() {
+        User customer = persistUser("owner-scoping-" + System.nanoTime() + "@example.com");
+        Restaurant restaurant = persistRestaurant("Pizza Place");
+        Restaurant otherRestaurant = persistRestaurant("Burger Place");
+        Order order = persistOrder(customer, restaurant);
+
+        assertThat(orderRepository.findByIdAndRestaurantIdWithItems(order.getId(), otherRestaurant.getId()))
+                .isEmpty();
+        assertThat(orderRepository.findByIdAndRestaurantIdWithItems(order.getId(), restaurant.getId()))
+                .isPresent();
+    }
+
+    @Test
+    void findByIdAndRestaurantIdWithItems_alsoFetchesCustomer_forTheOwnerDetailView() {
+        User customer = persistUser("owner-detail-" + System.nanoTime() + "@example.com");
+        Restaurant restaurant = persistRestaurant("Pizza Place");
+        Order order = persistOrder(customer, restaurant);
+        entityManager.clear();
+
+        Order reloaded = orderRepository.findByIdAndRestaurantIdWithItems(order.getId(), restaurant.getId())
+                .orElseThrow();
+
+        assertThat(reloaded.getCustomer().getName()).isEqualTo("Order Owner");
+    }
+
+    @Test
+    void findByRestaurantIdAndOptionalStatus_filtersByStatus_whenGiven() {
+        User customer = persistUser("owner-list-status-" + System.nanoTime() + "@example.com");
+        Restaurant restaurant = persistRestaurant("Pizza Place");
+        persistOrder(customer, restaurant);
+        Order preparingOrder = persistOrder(customer, restaurant);
+        preparingOrder.setStatus(OrderStatus.PREPARING);
+        entityManager.flush();
+        entityManager.clear();
+
+        Page<Order> preparingOnly = orderRepository.findByRestaurantIdAndOptionalStatus(
+                restaurant.getId(), OrderStatus.PREPARING, PageRequest.of(0, 20));
+
+        assertThat(preparingOnly.getContent()).extracting(Order::getId).containsExactly(preparingOrder.getId());
+    }
+
+    @Test
+    void findByRestaurantIdAndOptionalStatus_returnsEveryStatus_whenStatusIsNull() {
+        User customer = persistUser("owner-list-all-" + System.nanoTime() + "@example.com");
+        Restaurant restaurant = persistRestaurant("Pizza Place");
+        persistOrder(customer, restaurant);
+        Order cancelledOrder = persistOrder(customer, restaurant);
+        cancelledOrder.setStatus(OrderStatus.CANCELLED);
+        entityManager.flush();
+        entityManager.clear();
+
+        Page<Order> all = orderRepository.findByRestaurantIdAndOptionalStatus(
+                restaurant.getId(), null, PageRequest.of(0, 20));
+
+        assertThat(all.getTotalElements()).isEqualTo(2);
+    }
+
+    @Test
+    void findByRestaurantIdAndOptionalStatus_isScopedToRestaurant() {
+        User customer = persistUser("owner-list-scope-" + System.nanoTime() + "@example.com");
+        Restaurant restaurant = persistRestaurant("Pizza Place");
+        Restaurant otherRestaurant = persistRestaurant("Burger Place");
+        persistOrder(customer, restaurant);
+        persistOrder(customer, otherRestaurant);
+
+        Page<Order> result = orderRepository.findByRestaurantIdAndOptionalStatus(
+                restaurant.getId(), null, PageRequest.of(0, 20));
+
+        assertThat(result.getTotalElements()).isEqualTo(1);
+    }
+
+    @Test
+    void countByRestaurantIdAndStatus_andCountByRestaurantId_areScopedToRestaurant() {
+        User customer = persistUser("owner-count-" + System.nanoTime() + "@example.com");
+        Restaurant restaurant = persistRestaurant("Pizza Place");
+        Restaurant otherRestaurant = persistRestaurant("Burger Place");
+        persistOrder(customer, restaurant);
+        Order preparingOrder = persistOrder(customer, restaurant);
+        preparingOrder.setStatus(OrderStatus.PREPARING);
+        persistOrder(customer, otherRestaurant);
+        entityManager.flush();
+
+        assertThat(orderRepository.countByRestaurantId(restaurant.getId())).isEqualTo(2);
+        assertThat(orderRepository.countByRestaurantIdAndStatus(restaurant.getId(), OrderStatus.NEW)).isEqualTo(1);
+        assertThat(orderRepository.countByRestaurantIdAndStatus(restaurant.getId(), OrderStatus.PREPARING))
+                .isEqualTo(1);
+    }
+
     private User persistUser(String email) {
         User user = new User();
         user.setName("Order Owner");
@@ -155,7 +246,7 @@ class OrderRepositoryTest {
         order.setDiscount(BigDecimal.ZERO);
         order.setTotal(BigDecimal.valueOf(110));
         order.setPaymentMethod(PaymentMethod.CASH_ON_DELIVERY);
-        order.setStatus(OrderStatus.PENDING);
+        order.setStatus(OrderStatus.NEW);
         entityManager.persist(order);
         entityManager.flush();
         return order;
