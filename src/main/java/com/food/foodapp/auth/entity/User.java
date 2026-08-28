@@ -34,6 +34,16 @@ public class User {
     @Column(nullable = false, length = 20)
     private Role role;
 
+    /**
+     * Platform-admin account status — see {@link UserStatus} for how {@code SUSPENDED} is enforced.
+     * {@code columnDefinition} carries an explicit SQL default so {@code ddl-auto=update} can add
+     * this {@code NOT NULL} column to a {@code users} table that already has rows, backfilling
+     * them to {@code ACTIVE} instead of failing the {@code ALTER TABLE}.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20, columnDefinition = "varchar(20) default 'ACTIVE'")
+    private UserStatus status = UserStatus.ACTIVE;
+
     @CreationTimestamp
     @Column(updatable = false)
     private LocalDateTime createdAt;
