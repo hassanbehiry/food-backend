@@ -47,8 +47,8 @@ class OrderMapperTest {
         item.setQuantity(2);
 
         CheckoutResponse response = OrderMapper.toCheckoutResponse(restaurant, List.of(item), address,
-                PaymentMethod.CASH_ON_DELIVERY, BigDecimal.valueOf(100), BigDecimal.valueOf(12), BigDecimal.ZERO,
-                BigDecimal.valueOf(112));
+                PaymentMethod.CASH_ON_DELIVERY, BigDecimal.valueOf(100), BigDecimal.valueOf(12), null,
+                BigDecimal.ZERO, BigDecimal.valueOf(112));
 
         assertThat(response.getRestaurantId()).isEqualTo(5L);
         assertThat(response.getAddressId()).isEqualTo(50L);
@@ -56,7 +56,37 @@ class OrderMapperTest {
         assertThat(response.getPaymentMethod()).isEqualTo(PaymentMethod.CASH_ON_DELIVERY);
         assertThat(response.getItems()).hasSize(1);
         assertThat(response.getItems().get(0).getLineTotal()).isEqualByComparingTo(BigDecimal.valueOf(100));
+        assertThat(response.getCouponCode()).isNull();
         assertThat(response.getTotal()).isEqualByComparingTo(BigDecimal.valueOf(112));
+    }
+
+    @Test
+    void toCheckoutResponse_echoesCouponCode_whenCouponApplied() {
+        Restaurant restaurant = new Restaurant();
+        restaurant.setId(5L);
+        restaurant.setName("Pizza Place");
+
+        Address address = new Address();
+        address.setId(50L);
+        address.setStreet("Street 1");
+        address.setCity("Cairo");
+
+        CartItem item = new CartItem();
+        item.setId(1L);
+        MenuItem menuItem = new MenuItem();
+        menuItem.setId(10L);
+        menuItem.setName("Pizza");
+        menuItem.setPrice(BigDecimal.valueOf(50));
+        item.setMenuItem(menuItem);
+        item.setQuantity(2);
+
+        CheckoutResponse response = OrderMapper.toCheckoutResponse(restaurant, List.of(item), address,
+                PaymentMethod.CASH_ON_DELIVERY, BigDecimal.valueOf(100), BigDecimal.valueOf(12), "SAVE10",
+                BigDecimal.TEN, BigDecimal.valueOf(102));
+
+        assertThat(response.getCouponCode()).isEqualTo("SAVE10");
+        assertThat(response.getDiscount()).isEqualByComparingTo(BigDecimal.TEN);
+        assertThat(response.getTotal()).isEqualByComparingTo(BigDecimal.valueOf(102));
     }
 
     @Test
@@ -73,8 +103,9 @@ class OrderMapperTest {
         order.setDeliveryCity("Cairo");
         order.setSubtotal(BigDecimal.valueOf(100));
         order.setDeliveryFee(BigDecimal.valueOf(12));
-        order.setDiscount(BigDecimal.ZERO);
-        order.setTotal(BigDecimal.valueOf(112));
+        order.setCouponCode("SAVE10");
+        order.setDiscount(BigDecimal.TEN);
+        order.setTotal(BigDecimal.valueOf(102));
         order.setPaymentMethod(PaymentMethod.CASH_ON_DELIVERY);
         order.setStatus(OrderStatus.NEW);
 
@@ -91,6 +122,8 @@ class OrderMapperTest {
         assertThat(response.getItems().get(0).getName()).isEqualTo("Pizza");
         assertThat(response.getItems().get(0).getImg()).isEqualTo("pizza.jpg");
         assertThat(response.getItems().get(0).getPrice()).isEqualByComparingTo(BigDecimal.valueOf(50));
+        assertThat(response.getCouponCode()).isEqualTo("SAVE10");
+        assertThat(response.getDiscount()).isEqualByComparingTo(BigDecimal.TEN);
         assertThat(response.getStatus()).isEqualTo(OrderStatus.NEW);
     }
 

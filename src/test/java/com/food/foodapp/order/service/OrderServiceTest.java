@@ -14,8 +14,13 @@ import com.food.foodapp.common.exception.CartEmptyException;
 import com.food.foodapp.common.exception.InvalidOrderStatusTransitionException;
 import com.food.foodapp.common.exception.InvalidRequestParameterException;
 import com.food.foodapp.common.exception.MenuItemUnavailableException;
+import com.food.foodapp.common.exception.CouponNotApplicableException;
+import com.food.foodapp.common.exception.CouponNotFoundException;
 import com.food.foodapp.common.exception.OrderNotFoundException;
 import com.food.foodapp.common.exception.RestaurantNotFoundException;
+import com.food.foodapp.coupon.entity.Coupon;
+import com.food.foodapp.coupon.entity.DiscountType;
+import com.food.foodapp.coupon.service.CouponService;
 import com.food.foodapp.menu.entity.MenuItem;
 import com.food.foodapp.order.dto.CheckoutRequest;
 import com.food.foodapp.order.dto.CheckoutResponse;
@@ -81,12 +86,15 @@ class OrderServiceTest {
     @Mock
     private RestaurantService restaurantService;
 
+    @Mock
+    private CouponService couponService;
+
     private OrderService orderService;
 
     @BeforeEach
     void setUp() {
         orderService = new OrderService(cartRepository, cartItemRepository, addressRepository, userRepository,
-                orderRepository, userContext, restaurantService);
+                orderRepository, userContext, restaurantService, couponService);
         lenient().when(userContext.getCurrentUserId()).thenReturn(1L);
     }
 
@@ -163,6 +171,36 @@ class OrderServiceTest {
     }
 
     @Test
+    void previewCheckout_appliesCouponDiscount_whenCouponCodeValid() {
+        Restaurant restaurant = visibleRestaurant();
+        Cart cart = cartWithOneItem(restaurant);
+        when(cartRepository.findByCustomerIdWithItems(1L)).thenReturn(Optional.of(cart));
+        when(addressRepository.findByIdAndCustomerId(50L, 1L)).thenReturn(Optional.of(address(50L)));
+        Coupon coupon = coupon("SAVE10", DiscountType.FIXED, BigDecimal.TEN);
+        when(couponService.validate("SAVE10", restaurant, BigDecimal.valueOf(100)))
+                .thenReturn(new CouponService.CouponApplication(coupon, BigDecimal.TEN));
+
+        CheckoutResponse response = orderService.previewCheckout(checkoutRequest(50L, "CASH_ON_DELIVERY", "SAVE10"));
+
+        assertThat(response.getCouponCode()).isEqualTo("SAVE10");
+        assertThat(response.getDiscount()).isEqualByComparingTo(BigDecimal.TEN);
+        assertThat(response.getTotal()).isEqualByComparingTo(BigDecimal.valueOf(102));
+    }
+
+    @Test
+    void previewCheckout_propagatesCouponNotFound_whenCouponCodeUnknown() {
+        Restaurant restaurant = visibleRestaurant();
+        Cart cart = cartWithOneItem(restaurant);
+        when(cartRepository.findByCustomerIdWithItems(1L)).thenReturn(Optional.of(cart));
+        when(addressRepository.findByIdAndCustomerId(50L, 1L)).thenReturn(Optional.of(address(50L)));
+        when(couponService.validate("BADCODE", restaurant, BigDecimal.valueOf(100)))
+                .thenThrow(new CouponNotFoundException("Coupon not found: BADCODE"));
+
+        assertThatThrownBy(() -> orderService.previewCheckout(checkoutRequest(50L, "CASH_ON_DELIVERY", "BADCODE")))
+                .isInstanceOf(CouponNotFoundException.class);
+    }
+
+    @Test
     void placeOrder_persistsOrderAndClearsCart() {
         Restaurant restaurant = visibleRestaurant();
         Cart cart = cartWithOneItem(restaurant);
@@ -189,6 +227,47 @@ class OrderServiceTest {
         verify(cartItemRepository).deleteByCartId(cart.getId());
         assertThat(cart.getItems()).isEmpty();
         assertThat(cart.getRestaurant()).isNull();
+        verify(couponService, never()).recordUsage(any(), any());
+    }
+
+    @Test
+    void placeOrder_recordsCouponUsage_andSnapshotsCouponCode_whenCouponApplied() {
+        Restaurant restaurant = visibleRestaurant();
+        Cart cart = cartWithOneItem(restaurant);
+        when(cartRepository.findByCustomerIdForUpdate(1L)).thenReturn(Optional.of(cart));
+        when(cartRepository.findByCustomerIdWithItems(1L)).thenReturn(Optional.of(cart));
+        when(addressRepository.findByIdAndCustomerId(50L, 1L)).thenReturn(Optional.of(address(50L)));
+        when(userRepository.getReferenceById(1L)).thenReturn(new User());
+        when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> {
+            Order order = invocation.getArgument(0);
+            order.setId(500L);
+            return order;
+        });
+        Coupon coupon = coupon("SAVE10", DiscountType.FIXED, BigDecimal.TEN);
+        when(couponService.validate("SAVE10", restaurant, BigDecimal.valueOf(100)))
+                .thenReturn(new CouponService.CouponApplication(coupon, BigDecimal.TEN));
+
+        OrderResponse response = orderService.placeOrder(checkoutRequest(50L, "CASH_ON_DELIVERY", "SAVE10"));
+
+        assertThat(response.getCouponCode()).isEqualTo("SAVE10");
+        assertThat(response.getDiscount()).isEqualByComparingTo(BigDecimal.TEN);
+        assertThat(response.getTotal()).isEqualByComparingTo(BigDecimal.valueOf(102));
+        verify(couponService).recordUsage(eq(coupon), any(Order.class));
+    }
+
+    @Test
+    void placeOrder_rollsBackWithoutRecordingUsage_whenCouponNoLongerApplicable() {
+        Restaurant restaurant = visibleRestaurant();
+        Cart cart = cartWithOneItem(restaurant);
+        when(cartRepository.findByCustomerIdForUpdate(1L)).thenReturn(Optional.of(cart));
+        when(cartRepository.findByCustomerIdWithItems(1L)).thenReturn(Optional.of(cart));
+        when(addressRepository.findByIdAndCustomerId(50L, 1L)).thenReturn(Optional.of(address(50L)));
+        when(couponService.validate("SAVE10", restaurant, BigDecimal.valueOf(100)))
+                .thenThrow(new CouponNotApplicableException("Coupon usage limit has been reached: SAVE10"));
+
+        assertThatThrownBy(() -> orderService.placeOrder(checkoutRequest(50L, "CASH_ON_DELIVERY", "SAVE10")))
+                .isInstanceOf(CouponNotApplicableException.class);
+        verify(orderRepository, never()).save(any());
     }
 
     @Test
@@ -445,10 +524,25 @@ class OrderServiceTest {
     }
 
     private CheckoutRequest checkoutRequest(Long addressId, String paymentMethod) {
+        return checkoutRequest(addressId, paymentMethod, null);
+    }
+
+    private CheckoutRequest checkoutRequest(Long addressId, String paymentMethod, String couponCode) {
         CheckoutRequest request = new CheckoutRequest();
         request.setAddressId(addressId);
         request.setPaymentMethod(paymentMethod);
+        request.setCouponCode(couponCode);
         return request;
+    }
+
+    private Coupon coupon(String code, DiscountType type, BigDecimal value) {
+        Coupon coupon = new Coupon();
+        coupon.setId(9L);
+        coupon.setCode(code);
+        coupon.setDiscountType(type);
+        coupon.setDiscountValue(value);
+        coupon.setActive(true);
+        return coupon;
     }
 
     private Restaurant visibleRestaurant() {

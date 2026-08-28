@@ -22,7 +22,9 @@ public final class CartMapper {
                 .map(CartItemResponse::getLineTotal)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
         BigDecimal deliveryFee = cart.getRestaurant() != null ? cart.getRestaurant().getDeliveryFee() : BigDecimal.ZERO;
-        // Placeholder — coupon/discount engine is a separate task (phase-2-customer-engagement/11-coupon-discount.md).
+        // A coupon is a checkout-time input (see CheckoutRequest#getCouponCode), not standing cart
+        // state, so the idle cart has nothing to compute a discount from yet — see CouponService
+        // for where a submitted code actually gets validated and applied.
         BigDecimal discount = BigDecimal.ZERO;
         BigDecimal total = subtotal.add(deliveryFee).subtract(discount);
 

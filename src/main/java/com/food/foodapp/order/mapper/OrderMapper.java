@@ -35,7 +35,8 @@ public final class OrderMapper {
 
     public static CheckoutResponse toCheckoutResponse(Restaurant restaurant, List<CartItem> items, Address address,
                                                         PaymentMethod paymentMethod, BigDecimal subtotal,
-                                                        BigDecimal deliveryFee, BigDecimal discount, BigDecimal total) {
+                                                        BigDecimal deliveryFee, String couponCode,
+                                                        BigDecimal discount, BigDecimal total) {
         return CheckoutResponse.builder()
                 .restaurantId(restaurant.getId())
                 .restaurantName(restaurant.getName())
@@ -45,6 +46,7 @@ public final class OrderMapper {
                 .paymentMethod(paymentMethod)
                 .subtotal(subtotal)
                 .deliveryFee(deliveryFee)
+                .couponCode(couponCode)
                 .discount(discount)
                 .total(total)
                 .build();
@@ -61,6 +63,7 @@ public final class OrderMapper {
                         order.getDeliveryStreet(), order.getDeliveryCity(), order.getDeliveryPostalCode()))
                 .subtotal(order.getSubtotal())
                 .deliveryFee(order.getDeliveryFee())
+                .couponCode(order.getCouponCode())
                 .discount(order.getDiscount())
                 .total(order.getTotal())
                 .paymentMethod(order.getPaymentMethod())
@@ -122,6 +125,7 @@ public final class OrderMapper {
                         order.getDeliveryStreet(), order.getDeliveryCity(), order.getDeliveryPostalCode()))
                 .subtotal(order.getSubtotal())
                 .deliveryFee(order.getDeliveryFee())
+                .couponCode(order.getCouponCode())
                 .discount(order.getDiscount())
                 .total(order.getTotal())
                 .paymentMethod(order.getPaymentMethod())
