@@ -38,7 +38,8 @@ public final class CartMapper {
                 .build();
     }
 
-    private static CartItemResponse toItemResponse(CartItem item) {
+    /** Public so {@code OrderMapper} can render a checkout preview's cart items with the same shape, without duplicating this logic. */
+    public static CartItemResponse toItemResponse(CartItem item) {
         BigDecimal price = item.getMenuItem().getPrice();
         BigDecimal lineTotal = price.multiply(BigDecimal.valueOf(item.getQuantity()));
 
