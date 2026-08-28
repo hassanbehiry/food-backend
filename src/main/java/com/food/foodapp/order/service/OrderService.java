@@ -21,7 +21,9 @@ import com.food.foodapp.coupon.service.CouponService.CouponApplication;
 import com.food.foodapp.menu.entity.MenuItem;
 import com.food.foodapp.order.dto.CheckoutRequest;
 import com.food.foodapp.order.dto.CheckoutResponse;
+import com.food.foodapp.order.dto.OrderListResponse;
 import com.food.foodapp.order.dto.OrderResponse;
+import com.food.foodapp.order.dto.OrderSummaryResponse;
 import com.food.foodapp.order.dto.OrderTrackingResponse;
 import com.food.foodapp.order.dto.OwnerDashboardResponse;
 import com.food.foodapp.order.dto.OwnerOrderListResponse;
@@ -33,6 +35,7 @@ import com.food.foodapp.order.entity.OrderItem;
 import com.food.foodapp.order.entity.OrderStatus;
 import com.food.foodapp.order.entity.PaymentMethod;
 import com.food.foodapp.order.mapper.OrderMapper;
+import com.food.foodapp.order.repository.OrderItemCount;
 import com.food.foodapp.order.repository.OrderRepository;
 import com.food.foodapp.restaurant.entity.Restaurant;
 import com.food.foodapp.restaurant.service.RestaurantService;
@@ -45,10 +48,13 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.stream.Collectors;
 
 /**
  * The checkout/order-creation domain: the two-step flow of a computed, non-persisted preview
@@ -100,6 +106,10 @@ public class OrderService {
     private static final int MAX_PAGE_SIZE = 50;
     private static final int DASHBOARD_RECENT_ORDERS_LIMIT = 5;
 
+    /** Wide-open sentinel bounds {@link #listOrdersForCustomer} resolves an absent fromDate/toDate to — see {@link OrderRepository#findByCustomerIdWithFilters}. */
+    private static final LocalDateTime EARLIEST_POSSIBLE_ORDER_DATE = LocalDateTime.of(1970, 1, 1, 0, 0);
+    private static final LocalDateTime LATEST_POSSIBLE_ORDER_DATE = LocalDateTime.of(9999, 12, 31, 23, 59, 59);
+
     private final CartRepository cartRepository;
     private final CartItemRepository cartItemRepository;
     private final AddressRepository addressRepository;
@@ -142,6 +152,57 @@ public class OrderService {
         Long customerId = userContext.getCurrentUserId();
         Order order = requireOwnedOrder(orderId, customerId);
         return OrderMapper.toResponse(order);
+    }
+
+    /**
+     * The customer's order-history table: paginated, newest first, optionally narrowed by status,
+     * restaurant, and/or a {@code createdAt} date range. Unlike {@link #listOrdersForOwner}, every
+     * {@link OrderStatus} value is a valid filter here — this is the customer's own complete
+     * history, not the owner dashboard's tab set, so there's no reason to hide {@code CONFIRMED} or
+     * {@code CANCELLED} orders from it.
+     * <p>
+     * {@code fromDate}/{@code toDate} are calendar days in the caller's request, not timestamps;
+     * an absent bound is resolved to {@link #EARLIEST_POSSIBLE_ORDER_DATE}/
+     * {@link #LATEST_POSSIBLE_ORDER_DATE} rather than left {@code null}, and a present one is
+     * converted to a {@code [fromDate 00:00, toDate+1 00:00)} range so {@code toDate} is inclusive
+     * of the whole day — see {@link OrderRepository#findByCustomerIdWithFilters} for why these two
+     * are never passed through as {@code null}.
+     * <p>
+     * Item counts are fetched in one extra query for the whole page (see
+     * {@link OrderRepository#sumItemQuantitiesByOrderIds}) rather than a fetch join, to avoid a
+     * to-many join multiplying/breaking the paginated result.
+     */
+    @Transactional(readOnly = true)
+    public OrderListResponse listOrdersForCustomer(String rawStatus, Long restaurantId, LocalDate fromDate,
+                                                     LocalDate toDate, int page, int size) {
+        Long customerId = userContext.getCurrentUserId();
+        validatePagination(page, size);
+        OrderStatus status = resolveCustomerStatusFilter(rawStatus);
+        if (fromDate != null && toDate != null && fromDate.isAfter(toDate)) {
+            throw new InvalidRequestParameterException("Query parameter 'fromDate' must not be after 'toDate'");
+        }
+        LocalDateTime from = fromDate == null ? EARLIEST_POSSIBLE_ORDER_DATE : fromDate.atStartOfDay();
+        LocalDateTime to = toDate == null ? LATEST_POSSIBLE_ORDER_DATE : toDate.plusDays(1).atStartOfDay();
+
+        Page<Order> result = orderRepository.findByCustomerIdWithFilters(
+                customerId, status, restaurantId, from, to, PageRequest.of(page, size));
+
+        List<Long> orderIds = result.getContent().stream().map(Order::getId).toList();
+        Map<Long, Long> itemCounts = orderIds.isEmpty() ? Map.of() : orderRepository
+                .sumItemQuantitiesByOrderIds(orderIds).stream()
+                .collect(Collectors.toMap(OrderItemCount::orderId, OrderItemCount::itemCount));
+
+        List<OrderSummaryResponse> summaries = result.getContent().stream()
+                .map(order -> OrderMapper.toSummary(order, itemCounts.getOrDefault(order.getId(), 0L)))
+                .toList();
+
+        return OrderListResponse.builder()
+                .orders(summaries)
+                .page(result.getNumber())
+                .size(result.getSize())
+                .totalElements(result.getTotalElements())
+                .totalPages(result.getTotalPages())
+                .build();
     }
 
     @Transactional
@@ -262,6 +323,18 @@ public class OrderService {
                     "Invalid 'status' value: '" + raw + "'. Allowed values: " + OWNER_LISTABLE_STATUSES);
         }
         return status;
+    }
+
+    /** Unlike {@link #resolveOwnerListableStatus}, every {@link OrderStatus} value is allowed — see {@link #listOrdersForCustomer}. */
+    private OrderStatus resolveCustomerStatusFilter(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        try {
+            return OrderStatus.valueOf(raw.trim().toUpperCase());
+        } catch (IllegalArgumentException e) {
+            throw new InvalidRequestParameterException("Invalid 'status' value: '" + raw + "'");
+        }
     }
 
     private void validatePagination(int page, int size) {

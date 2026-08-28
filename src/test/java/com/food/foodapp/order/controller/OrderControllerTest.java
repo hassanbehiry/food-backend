@@ -2,9 +2,12 @@ package com.food.foodapp.order.controller;
 
 import com.food.foodapp.common.exception.CartEmptyException;
 import com.food.foodapp.common.exception.InvalidOrderStatusTransitionException;
+import com.food.foodapp.common.exception.InvalidRequestParameterException;
 import com.food.foodapp.common.exception.OrderNotFoundException;
 import com.food.foodapp.order.dto.OrderItemResponse;
+import com.food.foodapp.order.dto.OrderListResponse;
 import com.food.foodapp.order.dto.OrderResponse;
+import com.food.foodapp.order.dto.OrderSummaryResponse;
 import com.food.foodapp.order.dto.OrderTrackingResponse;
 import com.food.foodapp.order.dto.TrackingStepResponse;
 import com.food.foodapp.order.entity.OrderStatus;
@@ -18,11 +21,13 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -66,6 +71,58 @@ class OrderControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"addressId\":50,\"paymentMethod\":\"CASH_ON_DELIVERY\"}"))
                 .andExpect(status().isConflict());
+    }
+
+    @Test
+    void listOrders_returnsPaginatedSummaries() throws Exception {
+        when(orderService.listOrdersForCustomer(isNull(), isNull(), isNull(), isNull(), eq(0), eq(20)))
+                .thenReturn(OrderListResponse.builder()
+                        .orders(List.of(OrderSummaryResponse.builder()
+                                .id(700L)
+                                .orderNumber("ORD-20260825-000001")
+                                .restaurantId(5L)
+                                .restaurantName("Pizza Place")
+                                .itemCount(3)
+                                .total(BigDecimal.valueOf(112))
+                                .status(OrderStatus.DELIVERED)
+                                .createdAt(LocalDateTime.of(2026, 8, 25, 12, 0))
+                                .build()))
+                        .page(0)
+                        .size(20)
+                        .totalElements(1)
+                        .totalPages(1)
+                        .build());
+
+        mockMvc.perform(get("/api/v1/orders"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.orders.length()").value(1))
+                .andExpect(jsonPath("$.orders[0].id").value(700))
+                .andExpect(jsonPath("$.orders[0].itemCount").value(3))
+                .andExpect(jsonPath("$.totalElements").value(1));
+    }
+
+    @Test
+    void listOrders_passesFiltersThrough() throws Exception {
+        when(orderService.listOrdersForCustomer(
+                eq("delivered"), eq(5L), eq(LocalDate.of(2026, 8, 1)), eq(LocalDate.of(2026, 8, 25)), eq(0), eq(20)))
+                .thenReturn(OrderListResponse.builder()
+                        .orders(List.of()).page(0).size(20).totalElements(0).totalPages(0).build());
+
+        mockMvc.perform(get("/api/v1/orders")
+                        .param("status", "delivered")
+                        .param("restaurantId", "5")
+                        .param("fromDate", "2026-08-01")
+                        .param("toDate", "2026-08-25"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void listOrders_returns400_whenStatusInvalid() throws Exception {
+        when(orderService.listOrdersForCustomer(eq("BOGUS"), isNull(), isNull(), isNull(), eq(0), eq(20)))
+                .thenThrow(new InvalidRequestParameterException("Invalid 'status' value: 'BOGUS'"));
+
+        mockMvc.perform(get("/api/v1/orders").param("status", "BOGUS"))
+                .andExpect(status().isBadRequest());
     }
 
     @Test
