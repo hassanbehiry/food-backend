@@ -175,4 +175,60 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
             + "FROM Order o WHERE o.status = :status AND o.createdAt >= :from AND o.createdAt < :to")
     List<RevenueLine> findRevenueLinesByStatusInRange(
             @Param("status") OrderStatus status, @Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
+
+    /**
+     * The owner analytics overview's "total orders" KPI: every order placed at this restaurant in
+     * the range, regardless of status (including {@code CANCELLED}) — order *volume*, not fulfilled
+     * revenue, so it isn't filtered to a single status the way
+     * {@link #sumRevenueByRestaurantAndStatusInRange} is. Restaurant-scoped counterpart of
+     * {@link #countByCreatedAtGreaterThanEqualAndCreatedAtLessThan}. {@code to} is exclusive,
+     * matching every other date-range query in this repository.
+     */
+    long countByRestaurantIdAndCreatedAtGreaterThanEqualAndCreatedAtLessThan(
+            Long restaurantId, LocalDateTime from, LocalDateTime to);
+
+    /**
+     * Total revenue and order count for one restaurant/status/date-range — the aggregate behind
+     * both the owner analytics overview's "revenue" KPI and the owner revenue chart's period
+     * totals. Restaurant-scoped counterpart of {@link #sumRevenueByStatusInRange}. Always called
+     * with {@code status = OrderStatus.DELIVERED} in practice: {@code OrderAnalyticsService}
+     * recognizes revenue only once an order is actually delivered, never while still in progress
+     * or after a cancellation. {@code to} is exclusive.
+     */
+    @Query("SELECT new com.food.foodapp.order.repository.RevenueAggregate(SUM(o.total), COUNT(o)) "
+            + "FROM Order o WHERE o.restaurant.id = :restaurantId AND o.status = :status "
+            + "AND o.createdAt >= :from AND o.createdAt < :to")
+    RevenueAggregate sumRevenueByRestaurantAndStatusInRange(
+            @Param("restaurantId") Long restaurantId, @Param("status") OrderStatus status,
+            @Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
+
+    /**
+     * Per-status order counts for one restaurant within a date range, for the owner analytics
+     * overview's "orders by status" breakdown. Restaurant-scoped counterpart of
+     * {@link #countGroupByStatusInRange}. One query instead of one per status via {@code GROUP BY};
+     * a status with zero orders in the range has no row here, so the caller zero-fills the rest.
+     * {@code to} is exclusive.
+     */
+    @Query("SELECT new com.food.foodapp.order.repository.OrderStatusCount(o.status, COUNT(o)) "
+            + "FROM Order o WHERE o.restaurant.id = :restaurantId "
+            + "AND o.createdAt >= :from AND o.createdAt < :to GROUP BY o.status")
+    List<OrderStatusCount> countByRestaurantIdGroupByStatusInRange(
+            @Param("restaurantId") Long restaurantId, @Param("from") LocalDateTime from,
+            @Param("to") LocalDateTime to);
+
+    /**
+     * The delivered-order lines behind the owner revenue chart's day-by-day series, scoped to one
+     * restaurant — {@code createdAt} and {@code total} only, not full entities. Restaurant-scoped
+     * counterpart of {@link #findRevenueLinesByStatusInRange}. {@code OrderAnalyticsService} buckets
+     * these by calendar day in application code rather than via a JPQL
+     * {@code GROUP BY CAST(... AS date)} — see {@link RevenueLine} for why. Always called with
+     * {@code status = OrderStatus.DELIVERED} — see {@link #sumRevenueByRestaurantAndStatusInRange}.
+     * {@code to} is exclusive.
+     */
+    @Query("SELECT new com.food.foodapp.order.repository.RevenueLine(o.createdAt, o.total) "
+            + "FROM Order o WHERE o.restaurant.id = :restaurantId AND o.status = :status "
+            + "AND o.createdAt >= :from AND o.createdAt < :to")
+    List<RevenueLine> findRevenueLinesByRestaurantAndStatusInRange(
+            @Param("restaurantId") Long restaurantId, @Param("status") OrderStatus status,
+            @Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
 }

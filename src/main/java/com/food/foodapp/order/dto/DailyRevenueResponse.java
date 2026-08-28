@@ -6,7 +6,7 @@ import lombok.Getter;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 
-/** One bar of the admin dashboard's revenue chart: one calendar day, zero-filled when no order was delivered that day. */
+/** One bar of an analytics dashboard's revenue chart (admin platform-wide or owner per-restaurant): one calendar day, zero-filled when no order was delivered that day. */
 @Getter
 @Builder
 public class DailyRevenueResponse {

@@ -412,6 +412,114 @@ class OrderRepositoryTest {
         assertThat(result.get(0).total()).isEqualByComparingTo(BigDecimal.valueOf(110));
     }
 
+    @Test
+    void countByRestaurantIdAndCreatedAtGreaterThanEqualAndCreatedAtLessThan_countsEveryStatus_inRangeOnly() {
+        User customer = persistUser("analytics-count-" + System.nanoTime() + "@example.com");
+        Restaurant restaurant = persistRestaurant("Pizza Place");
+        Order inRangeCancelled = persistOrder(customer, restaurant);
+        inRangeCancelled.setStatus(OrderStatus.CANCELLED);
+        Order inRangeNew = persistOrder(customer, restaurant);
+        setCreatedAt(inRangeCancelled, LocalDateTime.of(2026, 8, 10, 12, 0));
+        setCreatedAt(inRangeNew, LocalDateTime.of(2026, 8, 15, 8, 0));
+        Order outOfRange = persistOrder(customer, restaurant);
+        setCreatedAt(outOfRange, LocalDateTime.of(2026, 9, 1, 0, 0));
+        entityManager.flush();
+        entityManager.clear();
+
+        long count = orderRepository.countByRestaurantIdAndCreatedAtGreaterThanEqualAndCreatedAtLessThan(
+                restaurant.getId(), LocalDateTime.of(2026, 8, 1, 0, 0), LocalDateTime.of(2026, 9, 1, 0, 0));
+
+        assertThat(count).isEqualTo(2);
+    }
+
+    @Test
+    void sumRevenueByRestaurantAndStatusInRange_sumsOnlyTheGivenStatus_inRange() {
+        User customer = persistUser("analytics-revenue-" + System.nanoTime() + "@example.com");
+        Restaurant restaurant = persistRestaurant("Pizza Place");
+        Order delivered1 = persistOrder(customer, restaurant);
+        delivered1.setStatus(OrderStatus.DELIVERED);
+        setCreatedAt(delivered1, LocalDateTime.of(2026, 8, 10, 12, 0));
+        Order delivered2 = persistOrder(customer, restaurant);
+        delivered2.setStatus(OrderStatus.DELIVERED);
+        setCreatedAt(delivered2, LocalDateTime.of(2026, 8, 20, 12, 0));
+        Order cancelled = persistOrder(customer, restaurant);
+        cancelled.setStatus(OrderStatus.CANCELLED);
+        setCreatedAt(cancelled, LocalDateTime.of(2026, 8, 12, 12, 0));
+        entityManager.flush();
+        entityManager.clear();
+
+        RevenueAggregate result = orderRepository.sumRevenueByRestaurantAndStatusInRange(restaurant.getId(),
+                OrderStatus.DELIVERED, LocalDateTime.of(2026, 8, 1, 0, 0), LocalDateTime.of(2026, 9, 1, 0, 0));
+
+        assertThat(result.orderCount()).isEqualTo(2);
+        assertThat(result.totalRevenueOrZero()).isEqualByComparingTo(BigDecimal.valueOf(220));
+    }
+
+    @Test
+    void sumRevenueByRestaurantAndStatusInRange_returnsZeroRevenueAndCount_whenNothingMatches() {
+        Restaurant restaurant = persistRestaurant("Empty Place");
+
+        RevenueAggregate result = orderRepository.sumRevenueByRestaurantAndStatusInRange(restaurant.getId(),
+                OrderStatus.DELIVERED, LocalDateTime.of(2026, 8, 1, 0, 0), LocalDateTime.of(2026, 9, 1, 0, 0));
+
+        assertThat(result.orderCount()).isZero();
+        assertThat(result.totalRevenueOrZero()).isEqualByComparingTo(BigDecimal.ZERO);
+    }
+
+    @Test
+    void countByRestaurantIdGroupByStatusInRange_groupsByStatus_omittingStatusesWithNoOrders() {
+        User customer = persistUser("analytics-status-" + System.nanoTime() + "@example.com");
+        Restaurant restaurant = persistRestaurant("Pizza Place");
+        Order newOrder = persistOrder(customer, restaurant);
+        setCreatedAt(newOrder, LocalDateTime.of(2026, 8, 10, 12, 0));
+        Order deliveredOrder = persistOrder(customer, restaurant);
+        deliveredOrder.setStatus(OrderStatus.DELIVERED);
+        setCreatedAt(deliveredOrder, LocalDateTime.of(2026, 8, 11, 12, 0));
+        Order anotherDelivered = persistOrder(customer, restaurant);
+        anotherDelivered.setStatus(OrderStatus.DELIVERED);
+        setCreatedAt(anotherDelivered, LocalDateTime.of(2026, 8, 12, 12, 0));
+        entityManager.flush();
+        entityManager.clear();
+
+        List<OrderStatusCount> result = orderRepository.countByRestaurantIdGroupByStatusInRange(
+                restaurant.getId(), LocalDateTime.of(2026, 8, 1, 0, 0), LocalDateTime.of(2026, 9, 1, 0, 0));
+
+        assertThat(result).extracting(OrderStatusCount::status, OrderStatusCount::count)
+                .containsExactlyInAnyOrder(tuple(OrderStatus.NEW, 1L), tuple(OrderStatus.DELIVERED, 2L));
+    }
+
+    @Test
+    void findRevenueLinesByRestaurantAndStatusInRange_returnsOnlyTheGivenStatus_inRange() {
+        User customer = persistUser("analytics-lines-" + System.nanoTime() + "@example.com");
+        Restaurant restaurant = persistRestaurant("Pizza Place");
+        Order deliveredMorning = persistOrder(customer, restaurant);
+        deliveredMorning.setStatus(OrderStatus.DELIVERED);
+        setCreatedAt(deliveredMorning, LocalDateTime.of(2026, 8, 10, 9, 0));
+        Order deliveredEvening = persistOrder(customer, restaurant);
+        deliveredEvening.setStatus(OrderStatus.DELIVERED);
+        setCreatedAt(deliveredEvening, LocalDateTime.of(2026, 8, 10, 21, 0));
+        Order deliveredNextDay = persistOrder(customer, restaurant);
+        deliveredNextDay.setStatus(OrderStatus.DELIVERED);
+        setCreatedAt(deliveredNextDay, LocalDateTime.of(2026, 8, 11, 9, 0));
+        Order cancelledSameDay = persistOrder(customer, restaurant);
+        cancelledSameDay.setStatus(OrderStatus.CANCELLED);
+        setCreatedAt(cancelledSameDay, LocalDateTime.of(2026, 8, 10, 10, 0));
+        Order outOfRange = persistOrder(customer, restaurant);
+        outOfRange.setStatus(OrderStatus.DELIVERED);
+        setCreatedAt(outOfRange, LocalDateTime.of(2026, 9, 1, 0, 0));
+        entityManager.flush();
+        entityManager.clear();
+
+        List<RevenueLine> result = orderRepository.findRevenueLinesByRestaurantAndStatusInRange(restaurant.getId(),
+                OrderStatus.DELIVERED, LocalDateTime.of(2026, 8, 1, 0, 0), LocalDateTime.of(2026, 9, 1, 0, 0));
+
+        assertThat(result).hasSize(3);
+        assertThat(result).extracting(RevenueLine::createdAt).containsExactlyInAnyOrder(
+                LocalDateTime.of(2026, 8, 10, 9, 0), LocalDateTime.of(2026, 8, 10, 21, 0),
+                LocalDateTime.of(2026, 8, 11, 9, 0));
+        assertThat(result.get(0).total()).isEqualByComparingTo(BigDecimal.valueOf(110));
+    }
+
     /** {@code createdAt} is {@code @CreationTimestamp}-generated, so date-range tests must overwrite it directly. */
     private void setCreatedAt(Order order, LocalDateTime createdAt) {
         entityManager.getEntityManager()
