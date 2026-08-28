@@ -105,4 +105,74 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
     @Query("SELECT new com.food.foodapp.order.repository.OrderItemCount(oi.order.id, SUM(oi.quantity)) "
             + "FROM OrderItem oi WHERE oi.order.id IN :orderIds GROUP BY oi.order.id")
     List<OrderItemCount> sumItemQuantitiesByOrderIds(@Param("orderIds") List<Long> orderIds);
+
+    /**
+     * The admin analytics overview's "total orders" KPI: every order placed platform-wide in the
+     * range, regardless of status (including {@code CANCELLED}) — order *volume*, not fulfilled
+     * revenue, mirroring the restaurant-scoped
+     * {@code countByRestaurantIdAndCreatedAtGreaterThanEqualAndCreatedAtLessThan} the owner
+     * dashboard's analytics uses. {@code to} is exclusive, matching every other date-range query
+     * in this repository.
+     */
+    long countByCreatedAtGreaterThanEqualAndCreatedAtLessThan(LocalDateTime from, LocalDateTime to);
+
+    /**
+     * Total revenue and order count platform-wide for one status/date-range — the aggregate
+     * behind the admin analytics overview's "revenue" KPI and the admin revenue chart's period
+     * totals. Always called with {@code status = OrderStatus.DELIVERED} in practice: revenue is
+     * recognized only once an order is actually delivered, mirroring the restaurant-scoped
+     * {@code sumRevenueByRestaurantAndStatusInRange} the owner dashboard's analytics uses.
+     * {@code to} is exclusive.
+     */
+    @Query("SELECT new com.food.foodapp.order.repository.RevenueAggregate(SUM(o.total), COUNT(o)) "
+            + "FROM Order o WHERE o.status = :status AND o.createdAt >= :from AND o.createdAt < :to")
+    RevenueAggregate sumRevenueByStatusInRange(
+            @Param("status") OrderStatus status, @Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
+
+    /**
+     * Per-status order counts platform-wide within a date range, for the admin analytics
+     * overview's "orders by status" breakdown. One query instead of one per status via
+     * {@code GROUP BY}; a status with zero orders in the range has no row here, so the caller
+     * zero-fills the rest. {@code to} is exclusive.
+     */
+    @Query("SELECT new com.food.foodapp.order.repository.OrderStatusCount(o.status, COUNT(o)) "
+            + "FROM Order o WHERE o.createdAt >= :from AND o.createdAt < :to GROUP BY o.status")
+    List<OrderStatusCount> countGroupByStatusInRange(@Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
+
+    /**
+     * Per-city order counts platform-wide within a date range, for the admin dashboard's
+     * "orders by city" donut. Grouped directly by {@code deliveryCity} in SQL — unlike the
+     * day-by-day revenue chart's bucketing (see {@link #findCreatedAtInRange}), this doesn't hit
+     * Hibernate's record-projection-vs-truncated-date failure mode, since {@code deliveryCity} is
+     * a plain string column, not a date expression. A city with zero orders in the range simply
+     * has no row. {@code to} is exclusive.
+     */
+    @Query("SELECT new com.food.foodapp.order.repository.CityOrderCount(o.deliveryCity, COUNT(o)) "
+            + "FROM Order o WHERE o.createdAt >= :from AND o.createdAt < :to GROUP BY o.deliveryCity")
+    List<CityOrderCount> countGroupByCityInRange(@Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
+
+    /**
+     * The raw order timestamps behind the admin dashboard's day-by-day orders bar chart, for
+     * every order platform-wide in the range regardless of status (order volume, not revenue —
+     * see {@link #countByCreatedAtGreaterThanEqualAndCreatedAtLessThan}). {@code
+     * AdminAnalyticsService} buckets these by calendar day in application code rather than a
+     * JPQL {@code GROUP BY CAST(... AS date)}: Hibernate's constructor-expression resolution for
+     * a record projection fails to match the database's truncated-date column type back to a
+     * {@code LocalDate} constructor parameter ({@code SemanticException: Missing constructor}),
+     * the same failure mode the owner dashboard's revenue chart avoids the same way. A single
+     * scalar column needs no record projection at all here. {@code to} is exclusive.
+     */
+    @Query("SELECT o.createdAt FROM Order o WHERE o.createdAt >= :from AND o.createdAt < :to")
+    List<LocalDateTime> findCreatedAtInRange(@Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
+
+    /**
+     * The delivered-order lines behind the admin revenue chart's day-by-day series, platform-wide
+     * — {@code createdAt} and {@code total} only, not full entities. Always called with
+     * {@code status = OrderStatus.DELIVERED} — see {@link #sumRevenueByStatusInRange}. {@code to}
+     * is exclusive.
+     */
+    @Query("SELECT new com.food.foodapp.order.repository.RevenueLine(o.createdAt, o.total) "
+            + "FROM Order o WHERE o.status = :status AND o.createdAt >= :from AND o.createdAt < :to")
+    List<RevenueLine> findRevenueLinesByStatusInRange(
+            @Param("status") OrderStatus status, @Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
 }
