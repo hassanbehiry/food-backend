@@ -1,9 +1,15 @@
 package com.food.foodapp.restaurant.service;
 
 import com.food.foodapp.common.exception.InvalidRequestParameterException;
+import com.food.foodapp.common.exception.InvalidRestaurantApprovalTransitionException;
 import com.food.foodapp.common.exception.RestaurantNotFoundException;
+import com.food.foodapp.restaurant.dto.AdminRestaurantListResponse;
+import com.food.foodapp.restaurant.dto.AdminRestaurantResponse;
+import com.food.foodapp.restaurant.dto.OwnerRestaurantResponse;
+import com.food.foodapp.restaurant.dto.RestaurantAvailabilityRequest;
 import com.food.foodapp.restaurant.dto.RestaurantDetailResponse;
 import com.food.foodapp.restaurant.dto.RestaurantListResponse;
+import com.food.foodapp.restaurant.dto.RestaurantSettingsUpdateRequest;
 import com.food.foodapp.restaurant.dto.RestaurantSortOption;
 import com.food.foodapp.restaurant.dto.RestaurantSummaryResponse;
 import com.food.foodapp.restaurant.entity.Restaurant;
@@ -12,6 +18,7 @@ import com.food.foodapp.restaurant.mapper.RestaurantMapper;
 import com.food.foodapp.restaurant.repository.RestaurantRepository;
 import com.food.foodapp.restaurant.repository.RestaurantSpecifications;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -20,6 +27,7 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalTime;
 import java.util.List;
 
 /**
@@ -27,6 +35,7 @@ import java.util.List;
  * Customer-facing results are always restricted to admin-approved, currently-open
  * restaurants — see {@link #isCustomerVisible(Restaurant)}.
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class RestaurantService {
@@ -89,6 +98,117 @@ public class RestaurantService {
 
     public static boolean isCustomerVisible(Restaurant restaurant) {
         return restaurant.getApprovalStatus() == RestaurantApprovalStatus.APPROVED && restaurant.isOpenForOrders();
+    }
+
+    /** Owner-facing settings view — works regardless of approval/open status. */
+    @Transactional(readOnly = true)
+    public OwnerRestaurantResponse getOwnerRestaurant(Long id) {
+        return RestaurantMapper.toOwnerResponse(requireRestaurant(id));
+    }
+
+    @Transactional
+    public OwnerRestaurantResponse updateSettings(Long id, RestaurantSettingsUpdateRequest request) {
+        Restaurant restaurant = requireRestaurant(id);
+        validateBusinessHours(request.getOpenTime(), request.getCloseTime());
+
+        restaurant.setName(request.getName().trim());
+        restaurant.setCuisine(request.getCuisine().trim());
+        restaurant.setDeliveryFee(request.getDeliveryFee());
+        restaurant.setMinimumOrder(request.getMinimumOrder());
+        restaurant.setOpenTime(request.getOpenTime());
+        restaurant.setCloseTime(request.getCloseTime());
+
+        return RestaurantMapper.toOwnerResponse(restaurantRepository.save(restaurant));
+    }
+
+    /** Pause/resume the storefront. Distinct from admin approval — see {@link Restaurant#getApprovalStatus()}. */
+    @Transactional
+    public OwnerRestaurantResponse updateAvailability(Long id, RestaurantAvailabilityRequest request) {
+        Restaurant restaurant = requireRestaurant(id);
+        restaurant.setOpenForOrders(request.getOpenForOrders());
+        return RestaurantMapper.toOwnerResponse(restaurantRepository.save(restaurant));
+    }
+
+    private void validateBusinessHours(LocalTime openTime, LocalTime closeTime) {
+        if (!closeTime.isAfter(openTime)) {
+            throw new InvalidRequestParameterException("closeTime must be after openTime");
+        }
+    }
+
+    /** The admin restaurants table — optionally filtered by {@code approvalStatus}, paginated. */
+    @Transactional(readOnly = true)
+    public AdminRestaurantListResponse listRestaurantsForAdmin(String status, int page, int size) {
+        validatePagination(page, size);
+        RestaurantApprovalStatus statusFilter = resolveAdminStatusFilter(status);
+
+        Specification<Restaurant> specification = statusFilter == null
+                ? null
+                : RestaurantSpecifications.hasApprovalStatus(statusFilter);
+
+        Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.ASC, "id"));
+        Page<Restaurant> result = restaurantRepository.findAll(specification, pageable);
+
+        List<AdminRestaurantResponse> restaurants = result.getContent().stream()
+                .map(RestaurantMapper::toAdminResponse)
+                .toList();
+
+        return AdminRestaurantListResponse.builder()
+                .restaurants(restaurants)
+                .page(result.getNumber())
+                .size(result.getSize())
+                .totalElements(result.getTotalElements())
+                .totalPages(result.getTotalPages())
+                .build();
+    }
+
+    /** Admin-facing restaurant detail — works regardless of approval/open status. */
+    @Transactional(readOnly = true)
+    public AdminRestaurantResponse getAdminRestaurant(Long id) {
+        return RestaurantMapper.toAdminResponse(requireRestaurant(id));
+    }
+
+    @Transactional
+    public AdminRestaurantResponse approveRestaurant(Long id) {
+        return transitionApprovalStatus(id, RestaurantApprovalStatus.APPROVED);
+    }
+
+    @Transactional
+    public AdminRestaurantResponse rejectRestaurant(Long id) {
+        return transitionApprovalStatus(id, RestaurantApprovalStatus.REJECTED);
+    }
+
+    @Transactional
+    public AdminRestaurantResponse suspendRestaurant(Long id) {
+        return transitionApprovalStatus(id, RestaurantApprovalStatus.SUSPENDED);
+    }
+
+    /**
+     * The single point every admin approval-status change routes through, so the legal-transition
+     * rules in {@link RestaurantApprovalStatus} are enforced in one place. Logged at info level as
+     * a minimal audit trail — this codebase has no persisted audit-log entity yet.
+     */
+    private AdminRestaurantResponse transitionApprovalStatus(Long id, RestaurantApprovalStatus target) {
+        Restaurant restaurant = requireRestaurant(id);
+        RestaurantApprovalStatus current = restaurant.getApprovalStatus();
+        if (!current.canTransitionTo(target)) {
+            throw new InvalidRestaurantApprovalTransitionException(
+                    "Restaurant " + id + " cannot move from " + current + " to " + target);
+        }
+        restaurant.setApprovalStatus(target);
+        Restaurant saved = restaurantRepository.save(restaurant);
+        log.info("Restaurant {} approval status changed from {} to {}", id, current, target);
+        return RestaurantMapper.toAdminResponse(saved);
+    }
+
+    private RestaurantApprovalStatus resolveAdminStatusFilter(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        try {
+            return RestaurantApprovalStatus.valueOf(raw.trim().toUpperCase());
+        } catch (IllegalArgumentException e) {
+            throw new InvalidRequestParameterException("Invalid 'status' value: '" + raw + "'");
+        }
     }
 
     private void validatePagination(int page, int size) {
