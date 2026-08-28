@@ -38,6 +38,14 @@
 			<artifactId>spring-boot-starter-webmvc</artifactId>
 		</dependency>
 
+		<!-- Security: SecurityContextHolder-backed request identity (see auth.security.SecurityConfig).
+		     Endpoint authorization is still enforced by feature services via UserContext; the filter
+		     chain permits every request for now. -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-security</artifactId>
+		</dependency>
+
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-devtools</artifactId>
@@ -101,7 +109,8 @@
 			<scope>runtime</scope>
 		</dependency>
 
-		<!-- Password Hashing (standalone BCrypt, no Spring Security) -->
+		<!-- Password Hashing: standalone jBCrypt, kept deliberately independent of Spring Security's
+		     PasswordEncoder so AuthService's hashing is unaffected by the security filter chain. -->
 		<dependency>
 			<groupId>org.mindrot</groupId>
 			<artifactId>jbcrypt</artifactId>
