@@ -2,6 +2,7 @@ package com.food.foodapp.restaurant.mapper;
 
 import com.food.foodapp.category.dto.CategoryResponse;
 import com.food.foodapp.category.mapper.CategoryMapper;
+import com.food.foodapp.restaurant.dto.AdminRestaurantResponse;
 import com.food.foodapp.restaurant.dto.OwnerRestaurantResponse;
 import com.food.foodapp.restaurant.dto.RestaurantDetailResponse;
 import com.food.foodapp.restaurant.dto.RestaurantSummaryResponse;
@@ -67,6 +68,22 @@ public final class RestaurantMapper {
                 .openTime(restaurant.getOpenTime())
                 .closeTime(restaurant.getCloseTime())
                 .openForOrders(restaurant.isOpenForOrders())
+                .build();
+    }
+
+    public static AdminRestaurantResponse toAdminResponse(Restaurant restaurant) {
+        return AdminRestaurantResponse.builder()
+                .id(restaurant.getId())
+                .name(restaurant.getName())
+                .cuisine(restaurant.getCuisine())
+                .deliveryFee(restaurant.getDeliveryFee())
+                .minimumOrder(restaurant.getMinimumOrder())
+                .openTime(restaurant.getOpenTime())
+                .closeTime(restaurant.getCloseTime())
+                .openForOrders(restaurant.isOpenForOrders())
+                .approvalStatus(restaurant.getApprovalStatus())
+                .createdAt(restaurant.getCreatedAt())
+                .updatedAt(restaurant.getUpdatedAt())
                 .build();
     }
 

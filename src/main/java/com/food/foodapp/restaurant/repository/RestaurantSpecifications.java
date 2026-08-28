@@ -38,4 +38,9 @@ public final class RestaurantSpecifications {
             return cb.equal(categories.get("id"), categoryId);
         };
     }
+
+    /** Admin restaurant-list filter — unlike {@link #isCustomerVisible()}, ignores {@code openForOrders}. */
+    public static Specification<Restaurant> hasApprovalStatus(RestaurantApprovalStatus status) {
+        return (root, query, cb) -> cb.equal(root.get("approvalStatus"), status);
+    }
 }

@@ -3,6 +3,7 @@ package com.food.foodapp.order.service;
 import com.food.foodapp.address.entity.Address;
 import com.food.foodapp.address.repository.AddressRepository;
 import com.food.foodapp.auth.entity.User;
+import com.food.foodapp.auth.entity.UserStatus;
 import com.food.foodapp.auth.repository.UserRepository;
 import com.food.foodapp.auth.security.UserContext;
 import com.food.foodapp.cart.entity.Cart;
@@ -38,6 +39,9 @@ import com.food.foodapp.order.repository.OrderRepository;
 import com.food.foodapp.restaurant.entity.Restaurant;
 import com.food.foodapp.restaurant.entity.RestaurantApprovalStatus;
 import com.food.foodapp.restaurant.service.RestaurantService;
+import com.food.foodapp.common.exception.AccountSuspendedException;
+import com.food.foodapp.common.exception.MaintenanceModeException;
+import com.food.foodapp.settings.service.PlatformSettingsService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -92,13 +96,17 @@ class OrderServiceTest {
     @Mock
     private CouponService couponService;
 
+    @Mock
+    private PlatformSettingsService platformSettingsService;
+
     private OrderService orderService;
 
     @BeforeEach
     void setUp() {
         orderService = new OrderService(cartRepository, cartItemRepository, addressRepository, userRepository,
-                orderRepository, userContext, restaurantService, couponService);
+                orderRepository, userContext, restaurantService, couponService, platformSettingsService);
         lenient().when(userContext.getCurrentUserId()).thenReturn(1L);
+        lenient().when(userRepository.findById(1L)).thenReturn(Optional.of(activeCustomer(1L)));
     }
 
     @Test
@@ -115,6 +123,30 @@ class OrderServiceTest {
         assertThat(response.getTotal()).isEqualByComparingTo(BigDecimal.valueOf(112));
         assertThat(response.getRestaurantId()).isEqualTo(restaurant.getId());
         verify(orderRepository, never()).save(any());
+    }
+
+    @Test
+    void previewCheckout_throwsMaintenanceMode_whenMaintenanceModeEnabled() {
+        Restaurant restaurant = visibleRestaurant();
+        Cart cart = cartWithOneItem(restaurant);
+        when(cartRepository.findByCustomerIdWithItems(1L)).thenReturn(Optional.of(cart));
+        when(platformSettingsService.isMaintenanceModeEnabled()).thenReturn(true);
+
+        assertThatThrownBy(() -> orderService.previewCheckout(checkoutRequest(50L, "CASH_ON_DELIVERY")))
+                .isInstanceOf(MaintenanceModeException.class);
+    }
+
+    @Test
+    void previewCheckout_throwsAccountSuspended_whenCustomerIsSuspended() {
+        Restaurant restaurant = visibleRestaurant();
+        Cart cart = cartWithOneItem(restaurant);
+        when(cartRepository.findByCustomerIdWithItems(1L)).thenReturn(Optional.of(cart));
+        User suspended = activeCustomer(1L);
+        suspended.setStatus(UserStatus.SUSPENDED);
+        when(userRepository.findById(1L)).thenReturn(Optional.of(suspended));
+
+        assertThatThrownBy(() -> orderService.previewCheckout(checkoutRequest(50L, "CASH_ON_DELIVERY")))
+                .isInstanceOf(AccountSuspendedException.class);
     }
 
     @Test
@@ -270,6 +302,34 @@ class OrderServiceTest {
 
         assertThatThrownBy(() -> orderService.placeOrder(checkoutRequest(50L, "CASH_ON_DELIVERY", "SAVE10")))
                 .isInstanceOf(CouponNotApplicableException.class);
+        verify(orderRepository, never()).save(any());
+    }
+
+    @Test
+    void placeOrder_throwsMaintenanceMode_whenMaintenanceModeEnabled() {
+        Restaurant restaurant = visibleRestaurant();
+        Cart cart = cartWithOneItem(restaurant);
+        when(cartRepository.findByCustomerIdForUpdate(1L)).thenReturn(Optional.of(cart));
+        when(cartRepository.findByCustomerIdWithItems(1L)).thenReturn(Optional.of(cart));
+        when(platformSettingsService.isMaintenanceModeEnabled()).thenReturn(true);
+
+        assertThatThrownBy(() -> orderService.placeOrder(checkoutRequest(50L, "CASH_ON_DELIVERY")))
+                .isInstanceOf(MaintenanceModeException.class);
+        verify(orderRepository, never()).save(any());
+    }
+
+    @Test
+    void placeOrder_throwsAccountSuspended_whenCustomerIsSuspended() {
+        Restaurant restaurant = visibleRestaurant();
+        Cart cart = cartWithOneItem(restaurant);
+        when(cartRepository.findByCustomerIdForUpdate(1L)).thenReturn(Optional.of(cart));
+        when(cartRepository.findByCustomerIdWithItems(1L)).thenReturn(Optional.of(cart));
+        User suspended = activeCustomer(1L);
+        suspended.setStatus(UserStatus.SUSPENDED);
+        when(userRepository.findById(1L)).thenReturn(Optional.of(suspended));
+
+        assertThatThrownBy(() -> orderService.placeOrder(checkoutRequest(50L, "CASH_ON_DELIVERY")))
+                .isInstanceOf(AccountSuspendedException.class);
         verify(orderRepository, never()).save(any());
     }
 
@@ -673,6 +733,13 @@ class OrderServiceTest {
     private User customer(String name) {
         User customer = new User();
         customer.setName(name);
+        return customer;
+    }
+
+    private User activeCustomer(Long id) {
+        User customer = new User();
+        customer.setId(id);
+        customer.setStatus(UserStatus.ACTIVE);
         return customer;
     }
 
