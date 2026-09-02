@@ -12,6 +12,7 @@ import com.food.foodapp.auth.repository.UserRepository;
 import com.food.foodapp.common.exception.AccountSuspendedException;
 import com.food.foodapp.common.exception.DuplicateEmailException;
 import com.food.foodapp.common.exception.InvalidCredentialsException;
+import com.food.foodapp.common.exception.InvalidRequestParameterException;
 import com.food.foodapp.common.exception.RestaurantRegistrationClosedException;
 import com.food.foodapp.settings.service.PlatformSettingsService;
 import lombok.RequiredArgsConstructor;
@@ -39,9 +40,18 @@ public class AuthService {
      * {@code OWNER} sign-up is additionally gated by the admin-controlled
      * {@link PlatformSettingsService#isRestaurantRegistrationAllowed()} toggle — {@code CUSTOMER}
      * sign-up is never affected by it.
+     * <p>
+     * Self-service registration can only ever create a {@code CUSTOMER} or an {@code OWNER}.
+     * {@code ADMIN} (and any role added later) is rejected here so the public endpoint can never be
+     * used to mint a privileged account — admins are provisioned out of band, see
+     * {@link com.food.foodapp.auth.bootstrap.AdminAccountInitializer}.
      */
     @Transactional
     public AuthResponse register(RegisterRequest request) {
+        if (request.getRole() != Role.CUSTOMER && request.getRole() != Role.OWNER) {
+            throw new InvalidRequestParameterException("role must be CUSTOMER or OWNER");
+        }
+
         if (request.getRole() == Role.OWNER && !platformSettingsService.isRestaurantRegistrationAllowed()) {
             throw new RestaurantRegistrationClosedException("Restaurant registration is currently closed");
         }

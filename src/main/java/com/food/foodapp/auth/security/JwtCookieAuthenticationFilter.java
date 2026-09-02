@@ -10,6 +10,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.lang.NonNull;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.filter.OncePerRequestFilter;
 
@@ -27,6 +28,10 @@ import java.util.List;
  * <p>This replaces the request-scoped {@code JwtCookieUserContext}: cookie parsing now happens
  * once per request here instead of lazily inside the {@link UserContext} implementation, which
  * makes the SecurityContext the single source of truth for "who is calling".
+ *
+ * <p>The token's {@code role} claim is turned into a single {@code ROLE_<name>} authority on the
+ * published {@code Authentication}, which is what lets {@link SecurityConfig} gate
+ * {@code /api/v1/admin/**} with {@code hasRole("ADMIN")} without any per-request database lookup.
  *
  * <p>Registered only inside the Spring Security filter chain by {@link SecurityConfig} — it is not
  * a component-scanned bean, so it stays out of {@code @WebMvcTest} slices.
@@ -54,11 +59,14 @@ public class JwtCookieAuthenticationFilter extends OncePerRequestFilter {
             return;
         }
         try {
-            Long userId = jwtUtil.parseUserId(token);
+            JwtUtil.AuthenticatedUser user = jwtUtil.authenticate(token);
+            var authorities = List.of(new SimpleGrantedAuthority("ROLE_" + user.role().name()));
             SecurityContextHolder.getContext().setAuthentication(
-                    new UsernamePasswordAuthenticationToken(userId, null, List.of()));
-        } catch (JwtException | NumberFormatException e) {
-            // Malformed, expired, or wrongly-signed token — leave the context unauthenticated.
+                    new UsernamePasswordAuthenticationToken(user.userId(), null, authorities));
+        } catch (JwtException | IllegalArgumentException e) {
+            // Malformed, expired, wrongly-signed, or claim-incomplete token — leave the context
+            // unauthenticated. (NumberFormatException, from a non-numeric subject, is an
+            // IllegalArgumentException.)
         }
     }
 

@@ -12,19 +12,20 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
 /**
- * Wires the application onto Spring Security without changing its externally observable behavior.
+ * Wires the application onto Spring Security.
  *
- * <p>Every request is permitted at the filter-chain level. Authorization is still enforced deeper
- * in the stack, by feature services that call {@link UserContext}. What this configuration adds is
- * that {@link JwtCookieAuthenticationFilter} now runs on every request and, when a valid
- * {@code auth_token} cookie is present, publishes the caller into the
- * {@link org.springframework.security.core.context.SecurityContextHolder} — making the
- * SecurityContext the single source of truth for the current user id, which
- * {@link SecurityContextHolderUserContext} reads.
+ * <p>Every request except {@code /api/v1/admin/**} is permitted at the filter-chain level;
+ * authentication for customer/owner features is still enforced deeper in the stack by feature
+ * services that call {@link UserContext}. {@link JwtCookieAuthenticationFilter} runs on every
+ * request and, when a valid {@code auth_token} cookie is present, publishes the caller — id plus a
+ * {@code ROLE_<name>} authority — into the
+ * {@link org.springframework.security.core.context.SecurityContextHolder}.
  *
- * <p>Endpoint-level authorization rules (public vs. authenticated vs. role-gated) are intentionally
- * not defined here yet; introducing them is a separate, deliberate change that will only touch this
- * class.
+ * <p>Admin authorization <em>is</em> defined here, at the filter chain, rather than with per-controller
+ * checks: {@code /api/v1/admin/**} requires the {@code ADMIN} authority, so every current and future
+ * admin controller is covered by one rule and admin services stay free of authorization code.
+ * Unauthenticated callers get 401 via {@link RestAuthenticationEntryPoint}; authenticated non-admins
+ * get 403 via {@link RestAccessDeniedHandler}.
  */
 @Configuration
 @EnableWebSecurity
@@ -37,14 +38,21 @@ public class SecurityConfig {
 
     @Bean
     SecurityFilterChain securityFilterChain(HttpSecurity http,
-                                            JwtCookieAuthenticationFilter jwtCookieAuthenticationFilter) throws Exception {
+                                            JwtCookieAuthenticationFilter jwtCookieAuthenticationFilter,
+                                            RestAuthenticationEntryPoint restAuthenticationEntryPoint,
+                                            RestAccessDeniedHandler restAccessDeniedHandler) throws Exception {
         return http
                 // Stateless JWT-cookie auth: no CSRF tokens, no server-side session.
                 .csrf(csrf -> csrf.disable())
                 // Keep the CORS rules already declared in common.config.WebConfig in effect.
                 .cors(Customizer.withDefaults())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-                .authorizeHttpRequests(auth -> auth.anyRequest().permitAll())
+                .authorizeHttpRequests(auth -> auth
+                        .requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
+                        .anyRequest().permitAll())
+                .exceptionHandling(ex -> ex
+                        .authenticationEntryPoint(restAuthenticationEntryPoint)
+                        .accessDeniedHandler(restAccessDeniedHandler))
                 .addFilterBefore(jwtCookieAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
                 .build();
     }
