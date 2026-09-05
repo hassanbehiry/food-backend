@@ -8,10 +8,13 @@ import com.food.foodapp.order.dto.CheckoutResponse;
 import com.food.foodapp.order.dto.OrderResponse;
 import com.food.foodapp.order.dto.OrderSummaryResponse;
 import com.food.foodapp.order.dto.OrderTrackingResponse;
+import com.food.foodapp.order.dto.OwnerAnalyticsOverviewResponse;
 import com.food.foodapp.order.dto.OwnerDashboardResponse;
 import com.food.foodapp.order.dto.OwnerOrderResponse;
 import com.food.foodapp.order.dto.OwnerOrderStatsResponse;
 import com.food.foodapp.order.dto.OwnerOrderSummaryResponse;
+import com.food.foodapp.order.dto.OwnerRevenueAnalyticsResponse;
+import com.food.foodapp.order.dto.DailyRevenueResponse;
 import com.food.foodapp.order.entity.Order;
 import com.food.foodapp.order.entity.OrderItem;
 import com.food.foodapp.order.entity.OrderStatus;
@@ -20,6 +23,7 @@ import com.food.foodapp.restaurant.entity.Restaurant;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -165,10 +169,11 @@ class OrderMapperTest {
         customer.setName("Ali");
         order.setCustomer(customer);
 
-        OwnerOrderSummaryResponse response = OrderMapper.toOwnerSummary(order);
+        OwnerOrderSummaryResponse response = OrderMapper.toOwnerSummary(order, 4L);
 
         assertThat(response.getId()).isEqualTo(700L);
         assertThat(response.getCustomerName()).isEqualTo("Ali");
+        assertThat(response.getItemCount()).isEqualTo(4);
         assertThat(response.getTotal()).isEqualByComparingTo(BigDecimal.valueOf(112));
     }
 
@@ -208,20 +213,35 @@ class OrderMapperTest {
     }
 
     @Test
-    void toDashboard_composesRestaurantStatsAndRecentOrders() {
+    void toDashboard_composesRestaurantStatsRecentOrdersAndDelegatedAnalytics() {
         Restaurant restaurant = new Restaurant();
         restaurant.setId(5L);
         restaurant.setName("Pizza Place");
         OwnerOrderStatsResponse stats = OwnerOrderStatsResponse.builder()
                 .newCount(3).preparingCount(2).onTheWayCount(1).deliveredCount(10).totalCount(16)
                 .build();
+        OwnerAnalyticsOverviewResponse overview = OwnerAnalyticsOverviewResponse.builder()
+                .totalOrders(42).totalOrdersTrendPercentage(BigDecimal.valueOf(12.5))
+                .revenue(BigDecimal.valueOf(3200)).revenueTrendPercentage(BigDecimal.valueOf(8))
+                .build();
+        OwnerRevenueAnalyticsResponse revenue = OwnerRevenueAnalyticsResponse.builder()
+                .changePercentage(BigDecimal.valueOf(8))
+                .dailyRevenue(List.of(DailyRevenueResponse.builder()
+                        .date(LocalDate.of(2026, 8, 22)).revenue(BigDecimal.valueOf(150)).orderCount(2).build()))
+                .build();
 
-        OwnerDashboardResponse response = OrderMapper.toDashboard(restaurant, stats, List.of());
+        OwnerDashboardResponse response = OrderMapper.toDashboard(restaurant, stats, List.of(), overview, revenue);
 
         assertThat(response.getRestaurantId()).isEqualTo(5L);
         assertThat(response.getRestaurantName()).isEqualTo("Pizza Place");
         assertThat(response.getStats().getTotalCount()).isEqualTo(16);
         assertThat(response.getRecentOrders()).isEmpty();
+        assertThat(response.getMonthOrders()).isEqualTo(42);
+        assertThat(response.getMonthOrdersTrendPct()).isEqualByComparingTo(BigDecimal.valueOf(12.5));
+        assertThat(response.getMonthRevenue()).isEqualByComparingTo(BigDecimal.valueOf(3200));
+        assertThat(response.getMonthRevenueTrendPct()).isEqualByComparingTo(BigDecimal.valueOf(8));
+        assertThat(response.getWeekOverWeekPct()).isEqualByComparingTo(BigDecimal.valueOf(8));
+        assertThat(response.getLast7DaysRevenue()).hasSize(1);
     }
 
     @Test

@@ -9,10 +9,12 @@ import com.food.foodapp.order.dto.OrderItemResponse;
 import com.food.foodapp.order.dto.OrderResponse;
 import com.food.foodapp.order.dto.OrderSummaryResponse;
 import com.food.foodapp.order.dto.OrderTrackingResponse;
+import com.food.foodapp.order.dto.OwnerAnalyticsOverviewResponse;
 import com.food.foodapp.order.dto.OwnerDashboardResponse;
 import com.food.foodapp.order.dto.OwnerOrderResponse;
 import com.food.foodapp.order.dto.OwnerOrderStatsResponse;
 import com.food.foodapp.order.dto.OwnerOrderSummaryResponse;
+import com.food.foodapp.order.dto.OwnerRevenueAnalyticsResponse;
 import com.food.foodapp.order.dto.TrackingStepResponse;
 import com.food.foodapp.order.entity.Order;
 import com.food.foodapp.order.entity.OrderItem;
@@ -117,12 +119,18 @@ public final class OrderMapper {
                 .build();
     }
 
-    /** One row of the owner dashboard's orders table — see {@link OwnerOrderSummaryResponse}. */
-    public static OwnerOrderSummaryResponse toOwnerSummary(Order order) {
+    /**
+     * One row of the owner dashboard's orders table — see {@link OwnerOrderSummaryResponse}.
+     * {@code itemCount} is the order's total item quantity, resolved by the caller in one batch
+     * query for the whole page (see {@code OrderRepository#sumItemQuantitiesByOrderIds}), the same
+     * way {@link #toSummary} takes it for the customer's history table.
+     */
+    public static OwnerOrderSummaryResponse toOwnerSummary(Order order, long itemCount) {
         return OwnerOrderSummaryResponse.builder()
                 .id(order.getId())
                 .orderNumber(order.getOrderNumber())
                 .customerName(order.getCustomer().getName())
+                .itemCount((int) itemCount)
                 .total(order.getTotal())
                 .status(order.getStatus())
                 .createdAt(order.getCreatedAt())
@@ -150,13 +158,28 @@ public final class OrderMapper {
                 .build();
     }
 
+    /**
+     * The owner dashboard's landing view. {@code overview} and {@code revenue} are the payloads
+     * {@code OrderAnalyticsService} already computes for the {@code /analytics/overview} and
+     * {@code /analytics/revenue} endpoints ({@code revenue} being the no-range default: the
+     * current Saturday-to-Friday week with a week-over-week change) — the dashboard reuses those
+     * figures verbatim rather than re-deriving any aggregation.
+     */
     public static OwnerDashboardResponse toDashboard(Restaurant restaurant, OwnerOrderStatsResponse stats,
-                                                       List<OwnerOrderSummaryResponse> recentOrders) {
+                                                       List<OwnerOrderSummaryResponse> recentOrders,
+                                                       OwnerAnalyticsOverviewResponse overview,
+                                                       OwnerRevenueAnalyticsResponse revenue) {
         return OwnerDashboardResponse.builder()
                 .restaurantId(restaurant.getId())
                 .restaurantName(restaurant.getName())
                 .stats(stats)
                 .recentOrders(recentOrders)
+                .monthOrders(overview.getTotalOrders())
+                .monthOrdersTrendPct(overview.getTotalOrdersTrendPercentage())
+                .monthRevenue(overview.getRevenue())
+                .monthRevenueTrendPct(overview.getRevenueTrendPercentage())
+                .last7DaysRevenue(revenue.getDailyRevenue())
+                .weekOverWeekPct(revenue.getChangePercentage())
                 .build();
     }
 

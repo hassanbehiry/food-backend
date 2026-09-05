@@ -28,9 +28,11 @@ import com.food.foodapp.order.dto.CheckoutResponse;
 import com.food.foodapp.order.dto.OrderListResponse;
 import com.food.foodapp.order.dto.OrderResponse;
 import com.food.foodapp.order.dto.OrderTrackingResponse;
+import com.food.foodapp.order.dto.OwnerAnalyticsOverviewResponse;
 import com.food.foodapp.order.dto.OwnerDashboardResponse;
 import com.food.foodapp.order.dto.OwnerOrderListResponse;
 import com.food.foodapp.order.dto.OwnerOrderResponse;
+import com.food.foodapp.order.dto.OwnerRevenueAnalyticsResponse;
 import com.food.foodapp.order.entity.Order;
 import com.food.foodapp.order.entity.OrderStatus;
 import com.food.foodapp.order.entity.PaymentMethod;
@@ -38,6 +40,7 @@ import com.food.foodapp.order.repository.OrderItemCount;
 import com.food.foodapp.order.repository.OrderRepository;
 import com.food.foodapp.restaurant.entity.Restaurant;
 import com.food.foodapp.restaurant.entity.RestaurantApprovalStatus;
+import com.food.foodapp.restaurant.repository.RestaurantRepository;
 import com.food.foodapp.restaurant.service.RestaurantOwnershipGuard;
 import com.food.foodapp.common.exception.AccountSuspendedException;
 import com.food.foodapp.common.exception.MaintenanceModeException;
@@ -88,10 +91,16 @@ class OrderServiceTest {
     private OrderRepository orderRepository;
 
     @Mock
+    private RestaurantRepository restaurantRepository;
+
+    @Mock
     private UserContext userContext;
 
     @Mock
     private RestaurantOwnershipGuard ownershipGuard;
+
+    @Mock
+    private OrderAnalyticsService orderAnalyticsService;
 
     @Mock
     private CouponService couponService;
@@ -104,7 +113,8 @@ class OrderServiceTest {
     @BeforeEach
     void setUp() {
         orderService = new OrderService(cartRepository, cartItemRepository, addressRepository, userRepository,
-                orderRepository, userContext, ownershipGuard, couponService, platformSettingsService);
+                orderRepository, restaurantRepository, userContext, ownershipGuard, orderAnalyticsService,
+                couponService, platformSettingsService);
         lenient().when(userContext.getCurrentUserId()).thenReturn(1L);
         lenient().when(userRepository.findById(1L)).thenReturn(Optional.of(activeCustomer(1L)));
     }
@@ -702,18 +712,18 @@ class OrderServiceTest {
     }
 
     @Test
-    void getDashboard_returnsStatsAndRecentOrders() {
+    void getDashboard_returnsStatsRecentOrdersWithItemCountsAndDelegatedAnalytics() {
         Restaurant restaurant = visibleRestaurant();
         when(ownershipGuard.requireOwnedRestaurant(5L)).thenReturn(restaurant);
-        when(orderRepository.countByRestaurantIdAndStatus(5L, OrderStatus.NEW)).thenReturn(3L);
-        when(orderRepository.countByRestaurantIdAndStatus(5L, OrderStatus.PREPARING)).thenReturn(2L);
-        when(orderRepository.countByRestaurantIdAndStatus(5L, OrderStatus.ON_THE_WAY)).thenReturn(1L);
-        when(orderRepository.countByRestaurantIdAndStatus(5L, OrderStatus.DELIVERED)).thenReturn(10L);
-        when(orderRepository.countByRestaurantId(5L)).thenReturn(16L);
+        stubDashboardCounts();
         Order order = existingOrder(700L, OrderStatus.NEW);
         order.setCustomer(customer("Ali"));
         when(orderRepository.findByRestaurantIdAndOptionalStatus(eq(5L), isNull(), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(order), Pageable.ofSize(5), 1));
+        when(orderRepository.sumItemQuantitiesByOrderIds(List.of(700L)))
+                .thenReturn(List.of(new OrderItemCount(700L, 4L)));
+        when(orderAnalyticsService.getOverview(5L)).thenReturn(overview(42L, BigDecimal.valueOf(3200)));
+        when(orderAnalyticsService.getRevenue(5L, null, null)).thenReturn(sevenDayRevenue(BigDecimal.valueOf(8)));
 
         OwnerDashboardResponse response = orderService.getDashboard(5L);
 
@@ -721,6 +731,11 @@ class OrderServiceTest {
         assertThat(response.getStats().getNewCount()).isEqualTo(3L);
         assertThat(response.getStats().getTotalCount()).isEqualTo(16L);
         assertThat(response.getRecentOrders()).hasSize(1);
+        assertThat(response.getRecentOrders().get(0).getItemCount()).isEqualTo(4);
+        assertThat(response.getMonthOrders()).isEqualTo(42L);
+        assertThat(response.getMonthRevenue()).isEqualByComparingTo(BigDecimal.valueOf(3200));
+        assertThat(response.getLast7DaysRevenue()).hasSize(7);
+        assertThat(response.getWeekOverWeekPct()).isEqualByComparingTo(BigDecimal.valueOf(8));
     }
 
     @Test
@@ -728,6 +743,58 @@ class OrderServiceTest {
         when(ownershipGuard.requireOwnedRestaurant(99L)).thenThrow(new RestaurantNotFoundException("Restaurant not found: 99"));
 
         assertThatThrownBy(() -> orderService.getDashboard(99L)).isInstanceOf(RestaurantNotFoundException.class);
+    }
+
+    @Test
+    void getDashboard_noArg_resolvesCallersOwnRestaurant_andBuildsSamePayload() {
+        Restaurant restaurant = visibleRestaurant();
+        when(restaurantRepository.findByOwnerId(1L)).thenReturn(Optional.of(restaurant));
+        stubDashboardCounts();
+        when(orderRepository.findByRestaurantIdAndOptionalStatus(eq(5L), isNull(), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(), Pageable.ofSize(5), 0));
+        when(orderAnalyticsService.getOverview(5L)).thenReturn(overview(0L, BigDecimal.ZERO));
+        when(orderAnalyticsService.getRevenue(5L, null, null)).thenReturn(sevenDayRevenue(BigDecimal.ZERO));
+
+        OwnerDashboardResponse response = orderService.getDashboard();
+
+        assertThat(response.getRestaurantId()).isEqualTo(5L);
+        assertThat(response.getRecentOrders()).isEmpty();
+        assertThat(response.getMonthOrders()).isZero();
+        assertThat(response.getLast7DaysRevenue()).hasSize(7);
+        verify(ownershipGuard, never()).requireOwnedRestaurant(any());
+    }
+
+    @Test
+    void getDashboard_noArg_throwsRestaurantNotFound_whenCallerOwnsNoRestaurant() {
+        when(restaurantRepository.findByOwnerId(1L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> orderService.getDashboard()).isInstanceOf(RestaurantNotFoundException.class);
+    }
+
+    private void stubDashboardCounts() {
+        when(orderRepository.countByRestaurantIdAndStatus(5L, OrderStatus.NEW)).thenReturn(3L);
+        when(orderRepository.countByRestaurantIdAndStatus(5L, OrderStatus.PREPARING)).thenReturn(2L);
+        when(orderRepository.countByRestaurantIdAndStatus(5L, OrderStatus.ON_THE_WAY)).thenReturn(1L);
+        when(orderRepository.countByRestaurantIdAndStatus(5L, OrderStatus.DELIVERED)).thenReturn(10L);
+        when(orderRepository.countByRestaurantId(5L)).thenReturn(16L);
+    }
+
+    private OwnerAnalyticsOverviewResponse overview(long totalOrders, BigDecimal revenue) {
+        return OwnerAnalyticsOverviewResponse.builder()
+                .restaurantId(5L).restaurantName("Pizza Place")
+                .totalOrders(totalOrders).totalOrdersTrendPercentage(BigDecimal.valueOf(12.5))
+                .revenue(revenue).revenueTrendPercentage(BigDecimal.valueOf(8))
+                .build();
+    }
+
+    private OwnerRevenueAnalyticsResponse sevenDayRevenue(BigDecimal changePct) {
+        List<com.food.foodapp.order.dto.DailyRevenueResponse> points = new ArrayList<>();
+        for (int i = 0; i < 7; i++) {
+            points.add(com.food.foodapp.order.dto.DailyRevenueResponse.builder()
+                    .date(LocalDate.of(2026, 8, 22).plusDays(i)).revenue(BigDecimal.ZERO).orderCount(0).build());
+        }
+        return OwnerRevenueAnalyticsResponse.builder()
+                .restaurantId(5L).changePercentage(changePct).dailyRevenue(points).build();
     }
 
     private CheckoutRequest checkoutRequest(Long addressId, String paymentMethod) {

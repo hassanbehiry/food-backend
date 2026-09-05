@@ -19,6 +19,8 @@ public class OwnerOrderSummaryResponse {
     private Long id;
     private String orderNumber;
     private String customerName;
+    /** Total item quantity across the order's lines — batch-fetched for the whole list (see {@code OrderRepository.sumItemQuantitiesByOrderIds}), never per row. */
+    private int itemCount;
     private BigDecimal total;
     private OrderStatus status;
     private LocalDateTime createdAt;
