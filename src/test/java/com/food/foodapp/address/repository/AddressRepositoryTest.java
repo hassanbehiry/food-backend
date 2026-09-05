@@ -5,8 +5,7 @@ import com.food.foodapp.auth.entity.Role;
 import com.food.foodapp.auth.entity.User;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
-import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
+import com.food.foodapp.support.RepositoryTest;
 import org.springframework.boot.jpa.test.autoconfigure.TestEntityManager;
 
 import java.util.List;
@@ -14,8 +13,7 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@DataJpaTest
-@AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
+@RepositoryTest
 class AddressRepositoryTest {
 
     @Autowired

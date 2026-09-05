@@ -84,6 +84,25 @@
 			<scope>runtime</scope>
 		</dependency>
 
+		<!-- Schema migrations: versioned SQL under src/main/resources/db/migration.
+		     Hibernate is validate-only (spring.jpa.hibernate.ddl-auto=validate); Flyway owns
+		     every schema change. Spring Boot 4's autoconfiguration is split per-module (like
+		     spring-boot-jdbc/spring-boot-hibernate above), so the Flyway *integration* module
+		     is needed in addition to the Flyway engine itself for FlywayAutoConfiguration to
+		     activate. -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-flyway</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.flywaydb</groupId>
+			<artifactId>flyway-core</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.flywaydb</groupId>
+			<artifactId>flyway-database-postgresql</artifactId>
+		</dependency>
+
 		<!-- Validation -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>

@@ -4,8 +4,7 @@ import com.food.foodapp.coupon.entity.Coupon;
 import com.food.foodapp.coupon.entity.DiscountType;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
-import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
+import com.food.foodapp.support.RepositoryTest;
 import org.springframework.boot.jpa.test.autoconfigure.TestEntityManager;
 import org.springframework.dao.DataIntegrityViolationException;
 
@@ -20,8 +19,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * Persistence-level checks for the {@code @Check} constraints on {@link Coupon} — invariants
  * that only bite at flush time against the real schema, plus the custom lookup queries.
  */
-@DataJpaTest
-@AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
+@RepositoryTest
 class CouponRepositoryTest {
 
     @Autowired

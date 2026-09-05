@@ -4,8 +4,7 @@ import com.food.foodapp.auth.entity.Role;
 import com.food.foodapp.auth.entity.User;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
-import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
+import com.food.foodapp.support.RepositoryTest;
 import org.springframework.boot.jpa.test.autoconfigure.TestEntityManager;
 
 import java.time.LocalDateTime;
@@ -17,8 +16,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * analytics overview's "registered customers" KPI, against a real Postgres instance (started via
  * {@code compose.yaml}).
  */
-@DataJpaTest
-@AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
+@RepositoryTest
 class UserRepositoryTest {
 
     @Autowired
