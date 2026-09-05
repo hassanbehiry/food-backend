@@ -30,11 +30,13 @@ import com.food.foodapp.order.dto.OrderListResponse;
 import com.food.foodapp.order.dto.OrderResponse;
 import com.food.foodapp.order.dto.OrderSummaryResponse;
 import com.food.foodapp.order.dto.OrderTrackingResponse;
+import com.food.foodapp.order.dto.OwnerAnalyticsOverviewResponse;
 import com.food.foodapp.order.dto.OwnerDashboardResponse;
 import com.food.foodapp.order.dto.OwnerOrderListResponse;
 import com.food.foodapp.order.dto.OwnerOrderResponse;
 import com.food.foodapp.order.dto.OwnerOrderStatsResponse;
 import com.food.foodapp.order.dto.OwnerOrderSummaryResponse;
+import com.food.foodapp.order.dto.OwnerRevenueAnalyticsResponse;
 import com.food.foodapp.order.entity.Order;
 import com.food.foodapp.order.entity.OrderItem;
 import com.food.foodapp.order.entity.OrderStatus;
@@ -43,6 +45,7 @@ import com.food.foodapp.order.mapper.OrderMapper;
 import com.food.foodapp.order.repository.OrderItemCount;
 import com.food.foodapp.order.repository.OrderRepository;
 import com.food.foodapp.restaurant.entity.Restaurant;
+import com.food.foodapp.restaurant.repository.RestaurantRepository;
 import com.food.foodapp.restaurant.service.RestaurantOwnershipGuard;
 import com.food.foodapp.restaurant.service.RestaurantService;
 import com.food.foodapp.settings.service.PlatformSettingsService;
@@ -122,8 +125,10 @@ public class OrderService {
     private final AddressRepository addressRepository;
     private final UserRepository userRepository;
     private final OrderRepository orderRepository;
+    private final RestaurantRepository restaurantRepository;
     private final UserContext userContext;
     private final RestaurantOwnershipGuard ownershipGuard;
+    private final OrderAnalyticsService orderAnalyticsService;
     private final CouponService couponService;
     private final PlatformSettingsService platformSettingsService;
 
@@ -276,7 +281,7 @@ public class OrderService {
                 restaurantId, status, PageRequest.of(page, size));
 
         return OwnerOrderListResponse.builder()
-                .orders(result.getContent().stream().map(OrderMapper::toOwnerSummary).toList())
+                .orders(toOwnerSummaries(result.getContent()))
                 .page(result.getNumber())
                 .size(result.getSize())
                 .totalElements(result.getTotalElements())
@@ -294,13 +299,42 @@ public class OrderService {
     }
 
     /**
-     * The combined stats + recent-orders payload behind the owner dashboard's landing view — see
-     * {@link OwnerDashboardResponse}. The finer-grained, fully paginated/filterable order list
-     * this is layered on top of is {@link #listOrdersForOwner}.
+     * The combined stats + recent-orders + month-KPI + revenue-series payload behind the owner
+     * dashboard's landing view — see {@link OwnerDashboardResponse}. The finer-grained, fully
+     * paginated/filterable order list this is layered on top of is {@link #listOrdersForOwner}.
+     * <p>
+     * This {@code {restaurantId}}-scoped form authorizes via
+     * {@code RestaurantOwnershipGuard.requireOwnedRestaurant} (a caller who does not own the
+     * restaurant gets {@code 403}); the no-argument {@link #getDashboard()} resolves the caller's
+     * own restaurant instead, which needs no further ownership check.
      */
     @Transactional(readOnly = true)
     public OwnerDashboardResponse getDashboard(Long restaurantId) {
         Restaurant restaurant = ownershipGuard.requireOwnedRestaurant(restaurantId);
+        return buildDashboard(restaurant);
+    }
+
+    /**
+     * The no-path-variable {@code GET /owner/dashboard}: resolves the caller's own restaurant
+     * (owner registration creates exactly one — see {@code RestaurantRepository#findByOwnerId})
+     * and builds the same payload as {@link #getDashboard(Long)}. The lookup is itself the
+     * authorization — the result can only ever be the caller's own restaurant — so no
+     * {@code RestaurantOwnershipGuard} call is needed here. An anonymous caller is already
+     * rejected with {@code 401} at the security filter chain ({@code /owner/**} is authenticated).
+     *
+     * @throws RestaurantNotFoundException if no restaurant is owned by the caller ({@code 404})
+     */
+    @Transactional(readOnly = true)
+    public OwnerDashboardResponse getDashboard() {
+        Long ownerId = userContext.getCurrentUserId();
+        Restaurant restaurant = restaurantRepository.findByOwnerId(ownerId)
+                .orElseThrow(() -> new RestaurantNotFoundException(
+                        "No restaurant is associated with your account"));
+        return buildDashboard(restaurant);
+    }
+
+    private OwnerDashboardResponse buildDashboard(Restaurant restaurant) {
+        Long restaurantId = restaurant.getId();
 
         OwnerOrderStatsResponse stats = OwnerOrderStatsResponse.builder()
                 .newCount(orderRepository.countByRestaurantIdAndStatus(restaurantId, OrderStatus.NEW))
@@ -311,11 +345,33 @@ public class OrderService {
                 .build();
 
         Pageable recentPageable = PageRequest.of(0, DASHBOARD_RECENT_ORDERS_LIMIT);
-        List<OwnerOrderSummaryResponse> recentOrders = orderRepository
-                .findByRestaurantIdAndOptionalStatus(restaurantId, null, recentPageable)
-                .getContent().stream().map(OrderMapper::toOwnerSummary).toList();
+        List<OwnerOrderSummaryResponse> recentOrders = toOwnerSummaries(orderRepository
+                .findByRestaurantIdAndOptionalStatus(restaurantId, null, recentPageable).getContent());
 
-        return OrderMapper.toDashboard(restaurant, stats, recentOrders);
+        // Delegated verbatim to OrderAnalyticsService — the same figures its /analytics/overview
+        // and /analytics/revenue endpoints expose (revenue with no range = the current
+        // Saturday-to-Friday week, seven zero-filled points, week-over-week change). Each call
+        // re-runs its own ownership guard; harmless here since the caller already owns this
+        // restaurant.
+        OwnerAnalyticsOverviewResponse overview = orderAnalyticsService.getOverview(restaurantId);
+        OwnerRevenueAnalyticsResponse revenue = orderAnalyticsService.getRevenue(restaurantId, null, null);
+
+        return OrderMapper.toDashboard(restaurant, stats, recentOrders, overview, revenue);
+    }
+
+    /**
+     * Maps a page of owner orders to summary rows, resolving every row's {@code itemCount} in one
+     * batch query for the whole page (see {@link OrderRepository#sumItemQuantitiesByOrderIds}) —
+     * the same no-N+1 approach {@link #listOrdersForCustomer} uses for the customer history table.
+     */
+    private List<OwnerOrderSummaryResponse> toOwnerSummaries(List<Order> orders) {
+        List<Long> orderIds = orders.stream().map(Order::getId).toList();
+        Map<Long, Long> itemCounts = orderIds.isEmpty() ? Map.of() : orderRepository
+                .sumItemQuantitiesByOrderIds(orderIds).stream()
+                .collect(Collectors.toMap(OrderItemCount::orderId, OrderItemCount::itemCount));
+        return orders.stream()
+                .map(order -> OrderMapper.toOwnerSummary(order, itemCounts.getOrDefault(order.getId(), 0L)))
+                .toList();
     }
 
     private OrderStatus resolveOwnerListableStatus(String raw) {
