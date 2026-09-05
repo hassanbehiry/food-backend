@@ -1,5 +1,6 @@
 package com.food.foodapp.auth.security;
 
+import com.food.foodapp.auth.entity.Role;
 import com.food.foodapp.auth.jwt.JwtUtil;
 import io.jsonwebtoken.ExpiredJwtException;
 import jakarta.servlet.http.Cookie;
@@ -12,6 +13,7 @@ import org.springframework.mock.web.MockFilterChain;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -45,19 +47,22 @@ class JwtCookieAuthenticationFilterTest {
     @Test
     void populatesSecurityContext_whenAuthCookieHoldsAValidToken() throws Exception {
         request.setCookies(new Cookie("auth_token", "valid.jwt.token"));
-        when(jwtUtil.parseUserId("valid.jwt.token")).thenReturn(7L);
+        when(jwtUtil.authenticate("valid.jwt.token")).thenReturn(new JwtUtil.AuthenticatedUser(7L, Role.CUSTOMER));
 
         filter.doFilter(request, response, chain);
 
         assertThat(SecurityContextHolder.getContext().getAuthentication()).isNotNull();
         assertThat(SecurityContextHolder.getContext().getAuthentication().getPrincipal()).isEqualTo(7L);
+        assertThat(SecurityContextHolder.getContext().getAuthentication().getAuthorities())
+                .extracting(GrantedAuthority::getAuthority)
+                .containsExactly("ROLE_CUSTOMER");
         assertThat(chain.getRequest()).isSameAs(request);
     }
 
     @Test
     void findsAuthCookie_amongOthers() throws Exception {
         request.setCookies(new Cookie("session", "x"), new Cookie("auth_token", "valid.jwt.token"));
-        when(jwtUtil.parseUserId("valid.jwt.token")).thenReturn(7L);
+        when(jwtUtil.authenticate("valid.jwt.token")).thenReturn(new JwtUtil.AuthenticatedUser(7L, Role.CUSTOMER));
 
         filter.doFilter(request, response, chain);
 
@@ -84,7 +89,7 @@ class JwtCookieAuthenticationFilterTest {
     @Test
     void leavesContextUnauthenticated_whenTokenIsInvalid() throws Exception {
         request.setCookies(new Cookie("auth_token", "expired.jwt.token"));
-        when(jwtUtil.parseUserId("expired.jwt.token"))
+        when(jwtUtil.authenticate("expired.jwt.token"))
                 .thenThrow(new ExpiredJwtException(null, null, "expired"));
 
         filter.doFilter(request, response, chain);
@@ -98,7 +103,8 @@ class JwtCookieAuthenticationFilterTest {
         SecurityContextHolder.getContext().setAuthentication(
                 new UsernamePasswordAuthenticationToken(99L, null, java.util.List.of()));
         request.setCookies(new Cookie("auth_token", "valid.jwt.token"));
-        lenient().when(jwtUtil.parseUserId("valid.jwt.token")).thenReturn(7L);
+        lenient().when(jwtUtil.authenticate("valid.jwt.token"))
+                .thenReturn(new JwtUtil.AuthenticatedUser(7L, Role.CUSTOMER));
 
         filter.doFilter(request, response, chain);
 

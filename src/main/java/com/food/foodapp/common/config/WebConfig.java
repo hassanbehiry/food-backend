@@ -20,9 +20,10 @@ public class WebConfig implements WebMvcConfigurer {
                         "http://localhost:5501",
                         "http://127.0.0.1:5501",
                         "http://localhost:3000",
+                        "http://localhost:5173", // Vite dev server default port
                         "null"  // Supports file:// protocol (Origin: null)
                 )
-                .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
+                .allowedMethods("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
                 .allowedHeaders("*")
                 .allowCredentials(true);
     }

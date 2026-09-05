@@ -1,5 +1,6 @@
 package com.food.foodapp.auth.jwt;
 
+import com.food.foodapp.auth.entity.Role;
 import com.food.foodapp.auth.entity.User;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.JwtException;
@@ -51,11 +52,34 @@ public class JwtUtil {
      * @throws JwtException if the token is missing, malformed, expired, or has an invalid signature
      */
     public Long parseUserId(String token) {
-        Claims claims = Jwts.parser()
+        return Long.valueOf(parseClaims(token).getSubject());
+    }
+
+    /**
+     * Parses and validates a JWT, returning both the user id (subject) and the {@link Role} carried
+     * in the {@code role} claim. Used by {@link com.food.foodapp.auth.security.JwtCookieAuthenticationFilter}
+     * to build the Spring Security authority for the request, so authorization no longer needs a
+     * database round-trip per call.
+     *
+     * @throws JwtException             if the token is missing, malformed, expired, or wrongly signed
+     * @throws IllegalArgumentException if the subject is not numeric or the {@code role} claim is
+     *                                  missing/unknown
+     */
+    public AuthenticatedUser authenticate(String token) {
+        Claims claims = parseClaims(token);
+        Long userId = Long.valueOf(claims.getSubject());
+        Role role = Role.valueOf(claims.get("role", String.class));
+        return new AuthenticatedUser(userId, role);
+    }
+
+    private Claims parseClaims(String token) {
+        return Jwts.parser()
                 .verifyWith(key)
                 .build()
                 .parseSignedClaims(token)
                 .getPayload();
-        return Long.valueOf(claims.getSubject());
     }
+
+    /** The caller identity a valid auth token resolves to. */
+    public record AuthenticatedUser(Long userId, Role role) {}
 }
