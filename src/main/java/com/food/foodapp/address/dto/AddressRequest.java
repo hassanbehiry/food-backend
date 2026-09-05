@@ -35,13 +35,25 @@ public class AddressRequest {
     private String notes;
 
     /**
-     * Lombok's boolean-getter convention would otherwise generate {@code isDefault()}/
-     * {@code setDefault(boolean)}, which Jackson binds to the JSON key "default" instead of
-     * "isDefault" — the key the frontend's address shape actually uses. The explicit
-     * {@code @JsonProperty} on the generated accessors keeps the wire name correct
-     * regardless of what Lombok names the underlying Java methods.
+     * Boxed so the service can tell "make/keep this the default" ({@code true}), "no longer the
+     * default" ({@code false}), and "not mentioned — leave the flag as it is" ({@code null})
+     * apart: a {@code PUT} that edits only the street must not silently drop the customer's
+     * default. On {@code POST} a missing value is treated as {@code false}.
+     * <p>
+     * Explicit accessors (Lombok's class-level {@code @Getter}/{@code @Setter} skip a field that
+     * already has them) so the wire name stays {@code isDefault} regardless of Jackson's
+     * {@code Boolean}-getter naming.
      */
-    @Getter(onMethod_ = @JsonProperty("isDefault"))
-    @Setter(onMethod_ = @JsonProperty("isDefault"))
-    private boolean isDefault;
+    @JsonProperty("isDefault")
+    private Boolean isDefault;
+
+    @JsonProperty("isDefault")
+    public Boolean getIsDefault() {
+        return isDefault;
+    }
+
+    @JsonProperty("isDefault")
+    public void setIsDefault(Boolean isDefault) {
+        this.isDefault = isDefault;
+    }
 }

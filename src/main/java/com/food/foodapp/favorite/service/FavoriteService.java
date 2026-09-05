@@ -16,6 +16,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -50,8 +51,14 @@ public class FavoriteService {
     @Transactional(readOnly = true)
     public List<FavoriteResponse> listFavorites() {
         Long customerId = userContext.getCurrentUserId();
-        return favoriteRepository.findByCustomerIdWithRestaurant(customerId).stream()
-                .map(FavoriteMapper::toResponse)
+        List<Favorite> favorites = favoriteRepository.findByCustomerIdWithRestaurant(customerId);
+
+        Map<Long, List<String>> categorySlugs = restaurantService.categorySlugsByRestaurantIds(
+                favorites.stream().map(f -> f.getRestaurant().getId()).toList());
+
+        return favorites.stream()
+                .map(f -> FavoriteMapper.toResponse(f,
+                        categorySlugs.getOrDefault(f.getRestaurant().getId(), List.of())))
                 .toList();
     }
 

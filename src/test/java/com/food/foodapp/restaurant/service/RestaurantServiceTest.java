@@ -76,13 +76,17 @@ class RestaurantServiceTest {
     }
 
     @Test
-    void getVisibleRestaurantById_throwsNotFound_whenClosedForOrders() {
+    void getVisibleRestaurantById_returnsDetail_whenApprovedButClosed() {
+        // An approved-but-closed restaurant is still readable (its detail + menu show, greyed out);
+        // only the ordering paths reject a closed restaurant. See GAP-021.
         Restaurant restaurant = approvedOpenRestaurant();
         restaurant.setOpenForOrders(false);
         when(restaurantRepository.findByIdWithCategories(1L)).thenReturn(Optional.of(restaurant));
 
-        assertThatThrownBy(() -> restaurantService.getVisibleRestaurantById(1L))
-                .isInstanceOf(RestaurantNotFoundException.class);
+        RestaurantDetailResponse response = restaurantService.getVisibleRestaurantById(1L);
+
+        assertThat(response.getId()).isEqualTo(restaurant.getId());
+        assertThat(response.isOpenForOrders()).isFalse();
     }
 
     @Test

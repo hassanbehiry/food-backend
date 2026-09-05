@@ -59,7 +59,7 @@ public class AddressService {
         applyRequest(address, request);
         // The very first saved address always becomes the default, regardless of what the
         // client sent, so checkout always has something to preselect once any address exists.
-        address.setDefault(isFirstAddress || request.isDefault());
+        address.setDefault(isFirstAddress || Boolean.TRUE.equals(request.getIsDefault()));
 
         Address saved = addressRepository.save(address);
         if (saved.isDefault()) {
@@ -68,13 +68,20 @@ public class AddressService {
         return AddressMapper.toResponse(saved);
     }
 
+    /**
+     * Partial with respect to the default flag: {@code isDefault} absent (null) leaves it
+     * unchanged, so editing only the street of the current default address does not silently
+     * clear it (GAP-013). An explicit {@code true}/{@code false} is applied as before.
+     */
     @Transactional
     public AddressResponse updateAddress(Long addressId, AddressRequest request) {
         Long customerId = lockCustomer();
         Address address = requireOwnedAddress(addressId, customerId);
 
         applyRequest(address, request);
-        address.setDefault(request.isDefault());
+        if (request.getIsDefault() != null) {
+            address.setDefault(request.getIsDefault());
+        }
 
         Address saved = addressRepository.save(address);
         if (saved.isDefault()) {

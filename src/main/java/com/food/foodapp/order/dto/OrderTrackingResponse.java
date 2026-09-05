@@ -4,6 +4,7 @@ import com.food.foodapp.order.entity.OrderStatus;
 import lombok.Builder;
 import lombok.Getter;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -25,4 +26,9 @@ public class OrderTrackingResponse {
     private List<TrackingStepResponse> steps;
     private LocalDateTime estimatedDeliveryAt;
     private LocalDateTime statusUpdatedAt;
+
+    /** Header fields the tracking screen shows alongside the map/steps. */
+    private String restaurantName;
+    private int itemCount;
+    private BigDecimal total;
 }

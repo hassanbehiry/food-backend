@@ -37,11 +37,12 @@ import java.util.Map;
 
 /**
  * Restaurant discovery: list/search/filter/sort and detail lookup.
- * The discovery <em>list</em> returns every admin-{@code APPROVED} restaurant, including ones
- * not currently accepting orders (flagged {@code isOpenForOrders:false} so the UI can grey them
- * out) — see {@link RestaurantSpecifications#approvedForCustomerListing()}. The <em>detail</em>
- * lookup and customer sub-resources still require the restaurant to also be open —
- * see {@link #isCustomerVisible(Restaurant)}.
+ * The discovery <em>list</em>, the <em>detail</em> lookup and the customer menu sub-resources all
+ * return every admin-{@code APPROVED} restaurant, including ones not currently accepting orders
+ * (flagged {@code isOpenForOrders:false} so the UI can grey them out) — see
+ * {@link RestaurantSpecifications#approvedForCustomerListing()} and {@link #isCustomerReadable(Restaurant)}.
+ * Only the "can this customer place an order right now" checks — cart add, coupon validation,
+ * checkout — additionally require the restaurant to be open, see {@link #isCustomerVisible(Restaurant)}.
  */
 @Slf4j
 @Service
@@ -70,7 +71,8 @@ public class RestaurantService {
         Pageable pageable = PageRequest.of(page, size, resolveSort(sortOption));
         Page<Restaurant> result = restaurantRepository.findAll(specification, pageable);
 
-        Map<Long, List<String>> categorySlugsByRestaurant = loadCategorySlugs(result.getContent());
+        Map<Long, List<String>> categorySlugsByRestaurant = categorySlugsByRestaurantIds(
+                result.getContent().stream().map(Restaurant::getId).toList());
 
         List<RestaurantSummaryResponse> restaurants = result.getContent().stream()
                 .map(r -> RestaurantMapper.toSummary(r,
@@ -87,18 +89,18 @@ public class RestaurantService {
     }
 
     /**
-     * Category slugs for one page of restaurants, keyed by restaurant id, each list sorted for a
-     * stable response order. One extra query for the whole page (see
-     * {@link RestaurantRepository#findCategorySlugsByRestaurantIds}) — not an N+1, and not a fetch
-     * join that could multiply the paged rows.
+     * Category slugs keyed by restaurant id, each list sorted for a stable response order. One
+     * query for the whole set (see {@link RestaurantRepository#findCategorySlugsByRestaurantIds}) —
+     * not an N+1, and not a fetch join that could multiply paged rows. Reused by anything that
+     * embeds a {@link RestaurantSummaryResponse} (the discovery list, the favorites list).
      */
-    private Map<Long, List<String>> loadCategorySlugs(List<Restaurant> restaurants) {
-        if (restaurants.isEmpty()) {
+    @Transactional(readOnly = true)
+    public Map<Long, List<String>> categorySlugsByRestaurantIds(List<Long> restaurantIds) {
+        if (restaurantIds.isEmpty()) {
             return Map.of();
         }
-        List<Long> ids = restaurants.stream().map(Restaurant::getId).toList();
         Map<Long, List<String>> byRestaurant = new HashMap<>();
-        for (RestaurantCategorySlug row : restaurantRepository.findCategorySlugsByRestaurantIds(ids)) {
+        for (RestaurantCategorySlug row : restaurantRepository.findCategorySlugsByRestaurantIds(restaurantIds)) {
             byRestaurant.computeIfAbsent(row.restaurantId(), k -> new ArrayList<>()).add(row.slug());
         }
         byRestaurant.values().forEach(Collections::sort);
@@ -108,7 +110,7 @@ public class RestaurantService {
     @Transactional(readOnly = true)
     public RestaurantDetailResponse getVisibleRestaurantById(Long id) {
         Restaurant restaurant = restaurantRepository.findByIdWithCategories(id)
-                .filter(RestaurantService::isCustomerVisible)
+                .filter(RestaurantService::isCustomerReadable)
                 .orElseThrow(() -> new RestaurantNotFoundException("Restaurant not found: " + id));
         return RestaurantMapper.toDetail(restaurant);
     }
@@ -120,14 +122,24 @@ public class RestaurantService {
                 .orElseThrow(() -> new RestaurantNotFoundException("Restaurant not found: " + id));
     }
 
-    /** Existence + customer-visibility check — used by customer-facing sub-resources of a restaurant. */
+    /**
+     * Existence + admin-approval check — used by the customer-facing menu sub-resources of a
+     * restaurant. A restaurant that is approved but currently closed is still readable (its menu
+     * shows, greyed out); only the ordering paths reject a closed restaurant.
+     */
     @Transactional(readOnly = true)
-    public Restaurant requireVisibleRestaurant(Long id) {
+    public Restaurant requireApprovedRestaurant(Long id) {
         return restaurantRepository.findById(id)
-                .filter(RestaurantService::isCustomerVisible)
+                .filter(RestaurantService::isCustomerReadable)
                 .orElseThrow(() -> new RestaurantNotFoundException("Restaurant not found: " + id));
     }
 
+    /** Readable by a customer (browse the storefront + menu): admin-approved, open or not. */
+    public static boolean isCustomerReadable(Restaurant restaurant) {
+        return restaurant.getApprovalStatus() == RestaurantApprovalStatus.APPROVED;
+    }
+
+    /** Orderable by a customer right now: admin-approved <em>and</em> currently accepting orders. */
     public static boolean isCustomerVisible(Restaurant restaurant) {
         return restaurant.getApprovalStatus() == RestaurantApprovalStatus.APPROVED && restaurant.isOpenForOrders();
     }

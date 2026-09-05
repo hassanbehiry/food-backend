@@ -95,6 +95,8 @@ public final class OrderMapper {
                     .build());
         }
 
+        int itemCount = order.getItems().stream().mapToInt(OrderItem::getQuantity).sum();
+
         return OrderTrackingResponse.builder()
                 .orderId(order.getId())
                 .orderNumber(order.getOrderNumber())
@@ -102,6 +104,9 @@ public final class OrderMapper {
                 .steps(steps)
                 .estimatedDeliveryAt(estimateDeliveryAt(order))
                 .statusUpdatedAt(order.getUpdatedAt())
+                .restaurantName(order.getRestaurant().getName())
+                .itemCount(itemCount)
+                .total(order.getTotal())
                 .build();
     }
 

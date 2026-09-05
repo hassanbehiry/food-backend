@@ -1,5 +1,6 @@
 package com.food.foodapp.auth.dto;
 
+import com.fasterxml.jackson.annotation.JsonAlias;
 import com.food.foodapp.auth.entity.Role;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
@@ -12,7 +13,9 @@ import lombok.Setter;
 @Setter
 public class RegisterRequest {
 
+    /** The frontend RegisterPage sends this as {@code fullName}; {@code name} is also accepted. */
     @NotBlank(message = "Name is required")
+    @JsonAlias("fullName")
     private String name;
 
     @NotBlank(message = "Email is required")
