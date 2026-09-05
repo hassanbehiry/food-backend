@@ -1,5 +1,6 @@
 package com.food.foodapp.cart.dto;
 
+import com.fasterxml.jackson.annotation.JsonAlias;
 import com.food.foodapp.cart.entity.CartItem;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -11,7 +12,9 @@ import lombok.Setter;
 @Setter
 public class CartAddItemRequest {
 
+    /** {@code @JsonAlias("id")} for the same reason as {@link CartSyncItemRequest#getMenuItemId()}. */
     @NotNull(message = "menuItemId is required")
+    @JsonAlias("id")
     private Long menuItemId;
 
     @NotNull(message = "quantity is required")

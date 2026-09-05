@@ -47,11 +47,32 @@ class CheckoutControllerTest {
     }
 
     @Test
-    void checkout_returns400_whenAddressIdMissing() throws Exception {
+    void checkout_returns400_whenNoDeliveryTargetProvided() throws Exception {
         mockMvc.perform(post("/api/v1/cart/checkout")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"paymentMethod\":\"CASH_ON_DELIVERY\"}"))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void checkout_returns400_whenBothAddressIdAndInlineAddressProvided() throws Exception {
+        mockMvc.perform(post("/api/v1/cart/checkout")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"addressId\":50,\"street\":\"12 Nile St\",\"city\":\"Cairo\","
+                                + "\"paymentMethod\":\"CASH_ON_DELIVERY\"}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void checkout_acceptsInlineAddressAndCashAlias() throws Exception {
+        when(orderService.previewCheckout(any())).thenReturn(previewResponse());
+
+        mockMvc.perform(post("/api/v1/cart/checkout")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"street\":\"12 Nile St\",\"city\":\"Cairo\",\"postalCode\":\"11511\","
+                                + "\"paymentMethod\":\"cash\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(112));
     }
 
     @Test

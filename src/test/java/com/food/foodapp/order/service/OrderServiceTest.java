@@ -206,6 +206,71 @@ class OrderServiceTest {
     }
 
     @Test
+    void previewCheckout_acceptsCashAlias_forCashOnDelivery() {
+        Restaurant restaurant = visibleRestaurant();
+        Cart cart = cartWithOneItem(restaurant);
+        when(cartRepository.findByCustomerIdWithItems(1L)).thenReturn(Optional.of(cart));
+        when(addressRepository.findByIdAndCustomerId(50L, 1L)).thenReturn(Optional.of(address(50L)));
+
+        CheckoutResponse response = orderService.previewCheckout(checkoutRequest(50L, "cash"));
+
+        assertThat(response.getPaymentMethod()).isEqualTo(PaymentMethod.CASH_ON_DELIVERY);
+        assertThat(response.getTotal()).isEqualByComparingTo(BigDecimal.valueOf(112));
+    }
+
+    @Test
+    void previewCheckout_usesInlineAddress_withoutTouchingAddressRepository() {
+        Restaurant restaurant = visibleRestaurant();
+        Cart cart = cartWithOneItem(restaurant);
+        when(cartRepository.findByCustomerIdWithItems(1L)).thenReturn(Optional.of(cart));
+
+        CheckoutResponse response = orderService.previewCheckout(inlineCheckoutRequest("12 Nile St", "Cairo", "cash"));
+
+        assertThat(response.getAddressId()).isNull();
+        assertThat(response.getDeliveryAddress()).isEqualTo("12 Nile St، Cairo");
+        assertThat(response.getTotal()).isEqualByComparingTo(BigDecimal.valueOf(112));
+        verify(addressRepository, never()).findByIdAndCustomerId(any(), any());
+    }
+
+    @Test
+    void previewCheckout_throwsInvalidRequestParameter_whenNoDeliveryTargetResolvable() {
+        Restaurant restaurant = visibleRestaurant();
+        Cart cart = cartWithOneItem(restaurant);
+        when(cartRepository.findByCustomerIdWithItems(1L)).thenReturn(Optional.of(cart));
+
+        assertThatThrownBy(() -> orderService.previewCheckout(inlineCheckoutRequest(null, null, "cash")))
+                .isInstanceOf(InvalidRequestParameterException.class);
+    }
+
+    @Test
+    void placeOrder_snapshotsInlineAddress_andCreatesNoSavedAddressRow() {
+        Restaurant restaurant = visibleRestaurant();
+        Cart cart = cartWithOneItem(restaurant);
+        when(cartRepository.findByCustomerIdForUpdate(1L)).thenReturn(Optional.of(cart));
+        when(cartRepository.findByCustomerIdWithItems(1L)).thenReturn(Optional.of(cart));
+        when(userRepository.getReferenceById(1L)).thenReturn(new User());
+        when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> {
+            Order order = invocation.getArgument(0);
+            order.setId(500L);
+            return order;
+        });
+
+        CheckoutRequest request = inlineCheckoutRequest("12 Nile St", "Cairo", "cash");
+        request.setPostalCode("11511");
+        request.setLabel("Home");
+        request.setNotes("Ring twice");
+
+        OrderResponse response = orderService.placeOrder(request);
+
+        assertThat(response.getId()).isEqualTo(500L);
+        assertThat(response.getPaymentMethod()).isEqualTo(PaymentMethod.CASH_ON_DELIVERY);
+        assertThat(response.getTotal()).isEqualByComparingTo(BigDecimal.valueOf(112));
+        assertThat(response.getDeliveryAddress()).isEqualTo("12 Nile St، Cairo، 11511");
+        verify(addressRepository, never()).findByIdAndCustomerId(any(), any());
+        verify(addressRepository, never()).save(any());
+    }
+
+    @Test
     void previewCheckout_appliesCouponDiscount_whenCouponCodeValid() {
         Restaurant restaurant = visibleRestaurant();
         Cart cart = cartWithOneItem(restaurant);
@@ -674,6 +739,14 @@ class OrderServiceTest {
         request.setAddressId(addressId);
         request.setPaymentMethod(paymentMethod);
         request.setCouponCode(couponCode);
+        return request;
+    }
+
+    private CheckoutRequest inlineCheckoutRequest(String street, String city, String paymentMethod) {
+        CheckoutRequest request = new CheckoutRequest();
+        request.setStreet(street);
+        request.setCity(city);
+        request.setPaymentMethod(paymentMethod);
         return request;
     }
 
