@@ -3,6 +3,7 @@ package com.food.foodapp.address.controller;
 import com.food.foodapp.address.dto.AddressRequest;
 import com.food.foodapp.address.dto.AddressResponse;
 import com.food.foodapp.address.service.AddressService;
+import com.food.foodapp.common.response.DeletionResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -59,10 +60,9 @@ public class AddressController {
         return ResponseEntity.ok(addressService.setDefaultAddress(addressId));
     }
 
-    /** DELETE /api/v1/user/addresses/{addressId} */
+    /** DELETE /api/v1/user/addresses/{addressId} — 200 with {@code {deleted, promotedDefaultId?}}. */
     @DeleteMapping("/{addressId}")
-    public ResponseEntity<Void> deleteAddress(@PathVariable Long addressId) {
-        addressService.deleteAddress(addressId);
-        return ResponseEntity.noContent().build();
+    public ResponseEntity<DeletionResponse> deleteAddress(@PathVariable Long addressId) {
+        return ResponseEntity.ok(addressService.deleteAddress(addressId));
     }
 }

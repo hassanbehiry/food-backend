@@ -138,19 +138,48 @@ public class RestaurantService {
         return RestaurantMapper.toOwnerResponse(ownershipGuard.requireOwnedRestaurant(id));
     }
 
+    /**
+     * Partial update — only the fields present in {@code request} are applied. {@code openTime} and
+     * {@code closeTime} must be supplied together; the {@code closeTime > openTime} rule is
+     * enforced here as a 400 before the row is saved (the entity {@code @Check} is only a backstop).
+     * An {@code isOpenForOrders} value, if present, is applied in the same call.
+     */
     @Transactional
     public OwnerRestaurantResponse updateSettings(Long id, RestaurantSettingsUpdateRequest request) {
         Restaurant restaurant = ownershipGuard.requireOwnedRestaurant(id);
-        validateBusinessHours(request.getOpenTime(), request.getCloseTime());
 
-        restaurant.setName(request.getName().trim());
-        restaurant.setCuisine(request.getCuisine().trim());
-        restaurant.setDeliveryFee(request.getDeliveryFee());
-        restaurant.setMinimumOrder(request.getMinimumOrder());
-        restaurant.setOpenTime(request.getOpenTime());
-        restaurant.setCloseTime(request.getCloseTime());
+        boolean openGiven = request.getOpenTime() != null;
+        boolean closeGiven = request.getCloseTime() != null;
+        if (openGiven != closeGiven) {
+            throw new InvalidRequestParameterException("openTime and closeTime must be provided together");
+        }
+        if (openGiven) {
+            validateBusinessHours(request.getOpenTime(), request.getCloseTime());
+            restaurant.setOpenTime(request.getOpenTime());
+            restaurant.setCloseTime(request.getCloseTime());
+        }
+
+        if (hasText(request.getName())) {
+            restaurant.setName(request.getName().trim());
+        }
+        if (hasText(request.getCuisine())) {
+            restaurant.setCuisine(request.getCuisine().trim());
+        }
+        if (request.getDeliveryFee() != null) {
+            restaurant.setDeliveryFee(request.getDeliveryFee());
+        }
+        if (request.getMinimumOrder() != null) {
+            restaurant.setMinimumOrder(request.getMinimumOrder());
+        }
+        if (request.getOpenForOrders() != null) {
+            restaurant.setOpenForOrders(request.getOpenForOrders());
+        }
 
         return RestaurantMapper.toOwnerResponse(restaurantRepository.save(restaurant));
+    }
+
+    private static boolean hasText(String s) {
+        return s != null && !s.isBlank();
     }
 
     /** Pause/resume the storefront. Distinct from admin approval — see {@link Restaurant#getApprovalStatus()}. */

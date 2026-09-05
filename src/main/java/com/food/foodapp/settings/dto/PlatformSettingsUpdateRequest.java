@@ -1,5 +1,6 @@
 package com.food.foodapp.settings.dto;
 
+import com.fasterxml.jackson.annotation.JsonAlias;
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Email;
@@ -10,11 +11,17 @@ import lombok.Setter;
 
 import java.math.BigDecimal;
 
-/** Full-replace of platform settings — every field is required, matching the admin settings form's single "Save" action. */
+/**
+ * Full-replace of platform settings — every field is required, matching the admin settings form's
+ * single "Save" action. The frontend sends {@code commission} / {@code allowRegistration}; the
+ * canonical {@code commissionPercentage} / {@code allowRestaurantRegistration} are also accepted
+ * (via {@code @JsonAlias}).
+ */
 @Getter
 @Setter
 public class PlatformSettingsUpdateRequest {
 
+    @JsonAlias("commission")
     @NotNull(message = "Commission percentage is required")
     @DecimalMin(value = "0.0", inclusive = true, message = "Commission percentage must be >= 0")
     @DecimalMax(value = "100.0", inclusive = true, message = "Commission percentage must be <= 100")
@@ -28,6 +35,7 @@ public class PlatformSettingsUpdateRequest {
     @Email(message = "Support email must be valid")
     private String supportEmail;
 
+    @JsonAlias("allowRegistration")
     @NotNull(message = "allowRestaurantRegistration is required")
     private Boolean allowRestaurantRegistration;
 

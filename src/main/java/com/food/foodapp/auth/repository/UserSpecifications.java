@@ -21,4 +21,8 @@ public final class UserSpecifications {
     public static Specification<User> hasStatus(UserStatus status) {
         return (root, query, cb) -> cb.equal(root.get("status"), status);
     }
+
+    public static Specification<User> roleNot(Role role) {
+        return (root, query, cb) -> cb.notEqual(root.get("role"), role);
+    }
 }

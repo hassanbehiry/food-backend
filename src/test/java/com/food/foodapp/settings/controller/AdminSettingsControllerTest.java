@@ -30,14 +30,36 @@ class AdminSettingsControllerTest {
     private PlatformSettingsService platformSettingsService;
 
     @Test
-    void get_returnsCurrentSettings() throws Exception {
+    void get_returnsCurrentSettings_underBothCanonicalAndFrontendKeyNames() throws Exception {
         when(platformSettingsService.getSettings()).thenReturn(response());
 
         mockMvc.perform(get("/api/v1/admin/settings"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.commissionPercentage").value(10))
+                .andExpect(jsonPath("$.commission").value(10))
+                .andExpect(jsonPath("$.allowRestaurantRegistration").value(true))
+                .andExpect(jsonPath("$.allowRegistration").value(true))
                 .andExpect(jsonPath("$.supportEmail").value("support@wajba.com"))
                 .andExpect(jsonPath("$.maintenanceMode").value(false));
+    }
+
+    @Test
+    void update_bindsTheFrontendKeyNames_commissionAndAllowRegistration() throws Exception {
+        when(platformSettingsService.updateSettings(any())).thenReturn(response());
+
+        mockMvc.perform(put("/api/v1/admin/settings")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "commission": 10,
+                                  "defaultDeliveryFee": 15,
+                                  "supportEmail": "support@wajba.com",
+                                  "allowRegistration": true,
+                                  "maintenanceMode": false
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.commission").value(10));
     }
 
     @Test

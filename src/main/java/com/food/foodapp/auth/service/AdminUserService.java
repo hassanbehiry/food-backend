@@ -8,6 +8,8 @@ import com.food.foodapp.auth.entity.UserStatus;
 import com.food.foodapp.auth.mapper.UserMapper;
 import com.food.foodapp.auth.repository.UserRepository;
 import com.food.foodapp.auth.repository.UserSpecifications;
+import com.food.foodapp.auth.security.UserContext;
+import com.food.foodapp.common.exception.AdminActionForbiddenException;
 import com.food.foodapp.common.exception.InvalidRequestParameterException;
 import com.food.foodapp.common.exception.InvalidUserStatusTransitionException;
 import com.food.foodapp.common.exception.UserNotFoundException;
@@ -28,11 +30,11 @@ import java.util.List;
  * suspend/reactivate status changes — the backend for the admin dashboard's Users tab
  * (All / Customers / Owners / Suspended).
  * <p>
- * NOTE: same authorization gap as {@link com.food.foodapp.restaurant.controller.AdminRestaurantController}
- * — this codebase has no admin-authentication middleware yet (no {@code ADMIN} role, no Spring
- * Security). In particular, "an admin cannot suspend their own account" cannot be enforced here:
- * there is no way to resolve which authenticated user is making this request. This is deferred
- * until admin identity can be resolved, the same way that controller's authorization gap is.
+ * Authorization: {@code /api/v1/admin/**} is gated to {@code ROLE_ADMIN} at the security filter
+ * chain, so every caller here is already an authenticated admin. On top of that, the status
+ * action refuses to change an admin's own account or any other {@code ADMIN} account, and the
+ * listing excludes {@code ADMIN} rows entirely (admins are provisioned out of band and are not
+ * managed from this screen).
  */
 @Slf4j
 @Service
@@ -42,6 +44,7 @@ public class AdminUserService {
     private static final int MAX_PAGE_SIZE = 50;
 
     private final UserRepository userRepository;
+    private final UserContext userContext;
 
     @Transactional(readOnly = true)
     public AdminUserListResponse listUsers(String rawRole, String rawStatus, int page, int size) {
@@ -49,14 +52,12 @@ public class AdminUserService {
         Role roleFilter = resolveRoleFilter(rawRole);
         UserStatus statusFilter = resolveStatusFilter(rawStatus);
 
-        Specification<User> specification = null;
+        Specification<User> specification = UserSpecifications.roleNot(Role.ADMIN);
         if (roleFilter != null) {
-            specification = UserSpecifications.hasRole(roleFilter);
+            specification = specification.and(UserSpecifications.hasRole(roleFilter));
         }
         if (statusFilter != null) {
-            specification = specification == null
-                    ? UserSpecifications.hasStatus(statusFilter)
-                    : specification.and(UserSpecifications.hasStatus(statusFilter));
+            specification = specification.and(UserSpecifications.hasStatus(statusFilter));
         }
 
         Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.ASC, "id"));
@@ -81,15 +82,29 @@ public class AdminUserService {
     }
 
     /**
-     * The single point every admin status change routes through, so the legal-transition rules
-     * in {@link UserStatus} are enforced in one place. Logged at info level as a minimal audit
-     * trail — this codebase has no persisted audit-log entity yet.
+     * The single point every admin status change routes through.
+     * <p>
+     * Re-applying the status a user is already in is a 200 no-op, not a {@code 409} — a dashboard
+     * toggle that re-sends the current state must not surface an error. An admin may not change
+     * their own account's status, nor any other {@code ADMIN} account's (both → 403). Logged at
+     * info level as a minimal audit trail — this codebase has no persisted audit-log entity yet.
      */
     @Transactional
     public AdminUserResponse updateStatus(Long id, String rawStatus) {
         UserStatus target = resolveStatus(rawStatus);
         User user = requireUser(id);
+
+        if (user.getId().equals(userContext.getCurrentUserId())) {
+            throw new AdminActionForbiddenException("An admin cannot change their own account status");
+        }
+        if (user.getRole() == Role.ADMIN) {
+            throw new AdminActionForbiddenException("Another admin's account status cannot be changed here");
+        }
+
         UserStatus current = user.getStatus();
+        if (current == target) {
+            return UserMapper.toAdminResponse(user);
+        }
         if (!current.canTransitionTo(target)) {
             throw new InvalidUserStatusTransitionException(
                     "User " + id + " cannot move from " + current + " to " + target);

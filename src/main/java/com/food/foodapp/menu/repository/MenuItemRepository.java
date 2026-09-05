@@ -27,8 +27,11 @@ public interface MenuItemRepository extends JpaRepository<MenuItem, Long> {
             + "ORDER BY i.category.displayOrder ASC, i.displayOrder ASC, i.id ASC")
     List<MenuItem> findVisibleByRestaurantId(@Param("restaurantId") Long restaurantId);
 
-    /** All items regardless of category visibility — owner management view. */
-    @Query("SELECT i FROM MenuItem i WHERE i.restaurant.id = :restaurantId "
+    /**
+     * All items regardless of category visibility — owner management view. Fetch-joins the
+     * category so mapping each item's {@code tab} name avoids N+1.
+     */
+    @Query("SELECT i FROM MenuItem i JOIN FETCH i.category WHERE i.restaurant.id = :restaurantId "
             + "ORDER BY i.category.displayOrder ASC, i.displayOrder ASC, i.id ASC")
     List<MenuItem> findAllByRestaurantIdOrdered(@Param("restaurantId") Long restaurantId);
 

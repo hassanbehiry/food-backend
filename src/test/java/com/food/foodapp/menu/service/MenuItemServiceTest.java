@@ -200,6 +200,7 @@ class MenuItemServiceTest {
     void updateItem_keepsDisplayOrder_whenCategoryUnchanged() {
         MenuCategory pizza = category(10L, "بيتزا", 0, true);
         MenuItem existing = item(100L, pizza, "مارجريتا", BigDecimal.valueOf(50), true, 5);
+        when(ownershipGuard.requireOwnedRestaurant(1L)).thenReturn(approvedOpenRestaurant());
         when(menuItemRepository.findByIdAndRestaurantId(100L, 1L)).thenReturn(Optional.of(existing));
         when(menuCategoryRepository.findByIdAndRestaurantId(10L, 1L)).thenReturn(Optional.of(pizza));
         when(menuItemRepository.save(any(MenuItem.class))).thenAnswer(invocation -> invocation.getArgument(0));
@@ -222,6 +223,7 @@ class MenuItemServiceTest {
         MenuCategory pizza = category(10L, "بيتزا", 0, true);
         MenuCategory drinks = category(11L, "مشروبات", 1, true);
         MenuItem existing = item(100L, pizza, "مارجريتا", BigDecimal.valueOf(50), true, 5);
+        when(ownershipGuard.requireOwnedRestaurant(1L)).thenReturn(approvedOpenRestaurant());
         when(menuItemRepository.findByIdAndRestaurantId(100L, 1L)).thenReturn(Optional.of(existing));
         when(menuCategoryRepository.findByIdAndRestaurantId(11L, 1L)).thenReturn(Optional.of(drinks));
         when(menuItemRepository.findMaxDisplayOrderInCategory(11L)).thenReturn(1);
@@ -236,6 +238,79 @@ class MenuItemServiceTest {
 
         assertThat(response.getDisplayOrder()).isEqualTo(2);
         assertThat(response.getCategoryId()).isEqualTo(11L);
+    }
+
+    @Test
+    void createItem_resolvesExistingCategoryByName() {
+        Restaurant restaurant = approvedOpenRestaurant();
+        MenuCategory pizza = category(10L, "بيتزا", 0, true);
+        when(ownershipGuard.requireOwnedRestaurant(1L)).thenReturn(restaurant);
+        when(menuCategoryRepository.findByRestaurantIdAndNameIgnoreCase(1L, "بيتزا")).thenReturn(Optional.of(pizza));
+        when(menuItemRepository.findMaxDisplayOrderInCategory(10L)).thenReturn(-1);
+        when(menuItemRepository.save(any(MenuItem.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        MenuItemCreateRequest request = new MenuItemCreateRequest();
+        request.setCategoryName("بيتزا");
+        request.setName("مارجريتا");
+        request.setPrice(BigDecimal.valueOf(50));
+        request.setImg("http://img/x.png");
+
+        OwnerMenuItemResponse response = menuItemService.createItem(1L, request);
+
+        assertThat(response.getCategoryId()).isEqualTo(10L);
+        assertThat(response.getTab()).isEqualTo("بيتزا");
+        assertThat(response.getImg()).isEqualTo("http://img/x.png");
+        verify(menuCategoryRepository, never()).save(any());
+    }
+
+    @Test
+    void createItem_createsCategoryScopedToRestaurant_whenNameDoesNotMatch() {
+        Restaurant restaurant = approvedOpenRestaurant();
+        when(ownershipGuard.requireOwnedRestaurant(1L)).thenReturn(restaurant);
+        when(menuCategoryRepository.findByRestaurantIdAndNameIgnoreCase(1L, "حلويات")).thenReturn(Optional.empty());
+        when(menuCategoryRepository.findMaxDisplayOrder(1L)).thenReturn(2);
+        when(menuCategoryRepository.save(any(MenuCategory.class))).thenAnswer(invocation -> {
+            MenuCategory c = invocation.getArgument(0);
+            c.setId(77L);
+            return c;
+        });
+        when(menuItemRepository.findMaxDisplayOrderInCategory(77L)).thenReturn(-1);
+        when(menuItemRepository.save(any(MenuItem.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        MenuItemCreateRequest request = new MenuItemCreateRequest();
+        request.setCategoryName("حلويات");
+        request.setName("بسبوسة");
+        request.setPrice(BigDecimal.valueOf(20));
+
+        OwnerMenuItemResponse response = menuItemService.createItem(1L, request);
+
+        assertThat(response.getCategoryId()).isEqualTo(77L);
+        assertThat(response.getTab()).isEqualTo("حلويات");
+        org.mockito.ArgumentCaptor<MenuCategory> captor = org.mockito.ArgumentCaptor.forClass(MenuCategory.class);
+        verify(menuCategoryRepository).save(captor.capture());
+        assertThat(captor.getValue().getRestaurant()).isSameAs(restaurant);
+        assertThat(captor.getValue().getDisplayOrder()).isEqualTo(3);
+    }
+
+    @Test
+    void updateItem_partialUpdate_leavesImageAndCategoryUntouched_whenNotSent() {
+        MenuCategory pizza = category(10L, "بيتزا", 0, true);
+        MenuItem existing = item(100L, pizza, "مارجريتا", BigDecimal.valueOf(50), true, 5);
+        existing.setImageUrl("http://img/original.png");
+        when(ownershipGuard.requireOwnedRestaurant(1L)).thenReturn(approvedOpenRestaurant());
+        when(menuItemRepository.findByIdAndRestaurantId(100L, 1L)).thenReturn(Optional.of(existing));
+        when(menuItemRepository.save(any(MenuItem.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        MenuItemUpdateRequest request = new MenuItemUpdateRequest();
+        request.setPrice(BigDecimal.valueOf(65));
+
+        OwnerMenuItemResponse response = menuItemService.updateItem(1L, 100L, request);
+
+        assertThat(response.getPrice()).isEqualByComparingTo(BigDecimal.valueOf(65));
+        assertThat(response.getImg()).isEqualTo("http://img/original.png");
+        assertThat(response.getName()).isEqualTo("مارجريتا");
+        assertThat(response.getCategoryId()).isEqualTo(10L);
+        verify(menuCategoryRepository, never()).findByIdAndRestaurantId(any(), any());
     }
 
     @Test
