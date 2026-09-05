@@ -1,10 +1,13 @@
 package com.food.foodapp.auth.controller;
 
 import com.food.foodapp.auth.dto.AuthResponse;
+import com.food.foodapp.auth.dto.ForgotPasswordRequest;
 import com.food.foodapp.auth.dto.LoginRequest;
 import com.food.foodapp.auth.dto.ProfileResponse;
 import com.food.foodapp.auth.dto.RegisterRequest;
+import com.food.foodapp.auth.dto.ResetPasswordRequest;
 import com.food.foodapp.auth.service.AuthService;
+import com.food.foodapp.auth.service.PasswordResetService;
 import com.food.foodapp.auth.service.ProfileService;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
@@ -33,6 +36,7 @@ public class AuthController {
 
     private final AuthService authService;
     private final ProfileService profileService;
+    private final PasswordResetService passwordResetService;
 
     @Value("${jwt.expiration}")
     private long jwtExpiration;
@@ -83,6 +87,34 @@ public class AuthController {
     @GetMapping("/me")
     public ResponseEntity<ProfileResponse> currentUser() {
         return ResponseEntity.ok(profileService.getCurrentProfile());
+    }
+
+    /**
+     * POST /api/v1/auth/forgot-password
+     * Starts the password-reset flow. Always responds 200 with the same generic message whether or
+     * not an account exists for the given email, so the endpoint cannot be used to probe which
+     * addresses are registered. When an account does exist, a single-use reset token is emailed
+     * (only its hash is stored) — the token itself is never in this response.
+     */
+    @PostMapping("/forgot-password")
+    public ResponseEntity<AuthResponse> forgotPassword(@Valid @RequestBody ForgotPasswordRequest request) {
+        passwordResetService.requestReset(request.getEmail());
+        return ResponseEntity.ok(AuthResponse.builder()
+                .message("If an account exists for that email, a password reset link has been sent.")
+                .build());
+    }
+
+    /**
+     * POST /api/v1/auth/reset-password
+     * Completes the flow: exchanges a valid, unused, unexpired reset token for a new password.
+     * An unknown / used / expired token yields a generic 400 via the shared exception handler.
+     */
+    @PostMapping("/reset-password")
+    public ResponseEntity<AuthResponse> resetPassword(@Valid @RequestBody ResetPasswordRequest request) {
+        passwordResetService.resetPassword(request.getToken(), request.getNewPassword());
+        return ResponseEntity.ok(AuthResponse.builder()
+                .message("Your password has been reset. You can now sign in with your new password.")
+                .build());
     }
 
     /**

@@ -135,6 +135,15 @@
 			<artifactId>jbcrypt</artifactId>
 			<version>0.4</version>
 		</dependency>
+
+		<!-- Mail: password-reset link delivery (BACKEND-009). Pulls spring-context-support +
+		     jakarta.mail. Optional at runtime — with no spring.mail.host configured, no
+		     JavaMailSender is auto-configured and the app falls back to a logging-only mailer
+		     (see auth.mail.PasswordResetMailerConfig). -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-mail</artifactId>
+		</dependency>
 	</dependencies>
 
 	<build>
