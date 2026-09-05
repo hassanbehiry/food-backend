@@ -70,6 +70,9 @@ public class AuthService {
         user.setEmail(normalizedEmail);
         user.setPassword(passwordEncoder.encode(request.getPassword()));
         user.setRole(request.getRole());
+        if (request.getPhone() != null && !request.getPhone().isBlank()) {
+            user.setPhone(request.getPhone().trim());
+        }
 
         // Save to database
         userRepository.save(user);
@@ -114,6 +117,7 @@ public class AuthService {
                 .id(user.getId())
                 .name(user.getName())
                 .email(user.getEmail())
+                .phone(user.getPhone())
                 .role(user.getRole().name())
                 .build();
 
