@@ -1,5 +1,6 @@
 package com.food.foodapp.order.controller;
 
+import com.food.foodapp.common.exception.OwnerAccessDeniedException;
 import com.food.foodapp.common.exception.RestaurantNotFoundException;
 import com.food.foodapp.order.dto.OwnerDashboardResponse;
 import com.food.foodapp.order.dto.OwnerOrderStatsResponse;
@@ -27,6 +28,15 @@ class OwnerDashboardControllerTest {
 
     @MockitoBean
     private OrderService orderService;
+
+    @Test
+    void ownerEndpoint_returns403_whenCallerDoesNotOwnTheRestaurant() throws Exception {
+        when(orderService.getDashboard(2L)).thenThrow(new OwnerAccessDeniedException("nope"));
+
+        mockMvc.perform(get("/api/v1/owner/dashboard/2"))
+                .andExpect(status().isForbidden());
+    }
+
 
     @Test
     void getDashboard_returns200_withStatsAndRecentOrders() throws Exception {

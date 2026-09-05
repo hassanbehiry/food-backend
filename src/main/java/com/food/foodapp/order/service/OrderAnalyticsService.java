@@ -11,7 +11,7 @@ import com.food.foodapp.order.repository.OrderStatusCount;
 import com.food.foodapp.order.repository.RevenueAggregate;
 import com.food.foodapp.order.repository.RevenueLine;
 import com.food.foodapp.restaurant.entity.Restaurant;
-import com.food.foodapp.restaurant.service.RestaurantService;
+import com.food.foodapp.restaurant.service.RestaurantOwnershipGuard;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -43,10 +43,10 @@ import java.util.stream.Collectors;
  * count every status — they describe order *volume*, not money earned.
  * <p>
  * Scoped to {@code restaurantId} the same way {@code OrderService}'s other owner-facing methods
- * are (see {@code OwnerOrderController}): every query filters on {@code restaurant.id}, so one
- * restaurant's analytics can never include another's data — but there is still no
- * authenticated-owner check that the caller actually owns {@code restaurantId}, the same temporary
- * gap the rest of the owner API has, to be closed once owner authentication exists.
+ * are (see {@code OwnerOrderController}): every query filters on {@code restaurant.id}, and both
+ * public methods first call {@code RestaurantOwnershipGuard.requireOwnedRestaurant}, so a caller
+ * who does not own {@code restaurantId} gets {@code 403} and can never see another restaurant's
+ * financial data.
  */
 @Service
 @RequiredArgsConstructor
@@ -59,7 +59,7 @@ public class OrderAnalyticsService {
     private static final long MAX_REVENUE_RANGE_DAYS = 366;
 
     private final OrderRepository orderRepository;
-    private final RestaurantService restaurantService;
+    private final RestaurantOwnershipGuard ownershipGuard;
 
     /**
      * The overview's two KPI cards (with month-over-month trend percentages) plus the
@@ -68,7 +68,7 @@ public class OrderAnalyticsService {
      */
     @Transactional(readOnly = true)
     public OwnerAnalyticsOverviewResponse getOverview(Long restaurantId) {
-        Restaurant restaurant = restaurantService.requireRestaurant(restaurantId);
+        Restaurant restaurant = ownershipGuard.requireOwnedRestaurant(restaurantId);
 
         LocalDate today = LocalDate.now();
         LocalDate monthStart = today.withDayOfMonth(1);
@@ -122,7 +122,7 @@ public class OrderAnalyticsService {
      */
     @Transactional(readOnly = true)
     public OwnerRevenueAnalyticsResponse getRevenue(Long restaurantId, LocalDate from, LocalDate to) {
-        restaurantService.requireRestaurant(restaurantId);
+        ownershipGuard.requireOwnedRestaurant(restaurantId);
         LocalDate[] range = resolveRange(from, to);
         LocalDate rangeFrom = range[0];
         LocalDate rangeTo = range[1];

@@ -11,11 +11,16 @@ import com.food.foodapp.auth.repository.UserRepository;
 import com.food.foodapp.common.exception.AccountSuspendedException;
 import com.food.foodapp.common.exception.DuplicateEmailException;
 import com.food.foodapp.common.exception.InvalidCredentialsException;
+import com.food.foodapp.common.exception.InvalidRequestParameterException;
 import com.food.foodapp.common.exception.RestaurantRegistrationClosedException;
+import com.food.foodapp.restaurant.entity.Restaurant;
+import com.food.foodapp.restaurant.entity.RestaurantApprovalStatus;
+import com.food.foodapp.restaurant.repository.RestaurantRepository;
 import com.food.foodapp.settings.service.PlatformSettingsService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -43,11 +48,15 @@ class AuthServiceTest {
     @Mock
     private PlatformSettingsService platformSettingsService;
 
+    @Mock
+    private RestaurantRepository restaurantRepository;
+
     private AuthService authService;
 
     @BeforeEach
     void setUp() {
-        authService = new AuthService(userRepository, passwordEncoder, jwtUtil, platformSettingsService);
+        authService = new AuthService(
+                userRepository, passwordEncoder, jwtUtil, platformSettingsService, restaurantRepository);
     }
 
     @Test
@@ -62,21 +71,53 @@ class AuthServiceTest {
     }
 
     @Test
-    void register_createsOwner_whenRegistrationAllowed() {
+    void register_createsOwnerAndPendingRestaurant_whenRegistrationAllowed() {
         when(platformSettingsService.isRestaurantRegistrationAllowed()).thenReturn(true);
         when(userRepository.existsByEmail("ali@example.com")).thenReturn(false);
 
-        AuthResponse response = authService.register(registerRequest(Role.OWNER));
+        RegisterRequest request = registerRequest(Role.OWNER);
+        request.setRestaurantName("Ali's Kitchen");
+
+        AuthResponse response = authService.register(request);
 
         assertThat(response.getMessage()).isEqualTo("Registration successful");
         verify(userRepository).save(any());
+
+        ArgumentCaptor<Restaurant> restaurantCaptor = ArgumentCaptor.forClass(Restaurant.class);
+        verify(restaurantRepository).save(restaurantCaptor.capture());
+        Restaurant created = restaurantCaptor.getValue();
+        assertThat(created.getName()).isEqualTo("Ali's Kitchen");
+        assertThat(created.getApprovalStatus()).isEqualTo(RestaurantApprovalStatus.PENDING);
+        assertThat(created.getOwner()).isNotNull();
+    }
+
+    @Test
+    void register_rejectsOwner_whenRestaurantNameMissing() {
+        when(platformSettingsService.isRestaurantRegistrationAllowed()).thenReturn(true);
+
+        assertThatThrownBy(() -> authService.register(registerRequest(Role.OWNER)))
+                .isInstanceOf(InvalidRequestParameterException.class);
+        verify(userRepository, never()).save(any());
+        verify(restaurantRepository, never()).save(any());
+    }
+
+    @Test
+    void register_doesNotCreateRestaurant_forCustomer() {
+        when(userRepository.existsByEmail("ali@example.com")).thenReturn(false);
+
+        authService.register(registerRequest(Role.CUSTOMER));
+
+        verify(restaurantRepository, never()).save(any());
     }
 
     @Test
     void register_rejectsOwner_whenRestaurantRegistrationClosed() {
         when(platformSettingsService.isRestaurantRegistrationAllowed()).thenReturn(false);
 
-        assertThatThrownBy(() -> authService.register(registerRequest(Role.OWNER)))
+        RegisterRequest request = registerRequest(Role.OWNER);
+        request.setRestaurantName("Ali's Kitchen");
+
+        assertThatThrownBy(() -> authService.register(request))
                 .isInstanceOf(RestaurantRegistrationClosedException.class);
         verify(userRepository, never()).save(any());
     }

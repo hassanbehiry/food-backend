@@ -38,7 +38,7 @@ import com.food.foodapp.order.repository.OrderItemCount;
 import com.food.foodapp.order.repository.OrderRepository;
 import com.food.foodapp.restaurant.entity.Restaurant;
 import com.food.foodapp.restaurant.entity.RestaurantApprovalStatus;
-import com.food.foodapp.restaurant.service.RestaurantService;
+import com.food.foodapp.restaurant.service.RestaurantOwnershipGuard;
 import com.food.foodapp.common.exception.AccountSuspendedException;
 import com.food.foodapp.common.exception.MaintenanceModeException;
 import com.food.foodapp.settings.service.PlatformSettingsService;
@@ -91,7 +91,7 @@ class OrderServiceTest {
     private UserContext userContext;
 
     @Mock
-    private RestaurantService restaurantService;
+    private RestaurantOwnershipGuard ownershipGuard;
 
     @Mock
     private CouponService couponService;
@@ -104,7 +104,7 @@ class OrderServiceTest {
     @BeforeEach
     void setUp() {
         orderService = new OrderService(cartRepository, cartItemRepository, addressRepository, userRepository,
-                orderRepository, userContext, restaurantService, couponService, platformSettingsService);
+                orderRepository, userContext, ownershipGuard, couponService, platformSettingsService);
         lenient().when(userContext.getCurrentUserId()).thenReturn(1L);
         lenient().when(userRepository.findById(1L)).thenReturn(Optional.of(activeCustomer(1L)));
     }
@@ -620,7 +620,7 @@ class OrderServiceTest {
 
     @Test
     void listOrdersForOwner_returnsPaginatedSummaries_whenNoStatusFilter() {
-        when(restaurantService.requireRestaurant(5L)).thenReturn(visibleRestaurant());
+        when(ownershipGuard.requireOwnedRestaurant(5L)).thenReturn(visibleRestaurant());
         Order order = existingOrder(700L, OrderStatus.NEW);
         order.setCustomer(customer("Ali"));
         when(orderRepository.findByRestaurantIdAndOptionalStatus(eq(5L), isNull(), any(Pageable.class)))
@@ -635,7 +635,7 @@ class OrderServiceTest {
 
     @Test
     void listOrdersForOwner_filtersByStatus() {
-        when(restaurantService.requireRestaurant(5L)).thenReturn(visibleRestaurant());
+        when(ownershipGuard.requireOwnedRestaurant(5L)).thenReturn(visibleRestaurant());
         when(orderRepository.findByRestaurantIdAndOptionalStatus(eq(5L), eq(OrderStatus.PREPARING), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(), Pageable.ofSize(20), 0));
 
@@ -646,7 +646,7 @@ class OrderServiceTest {
 
     @Test
     void listOrdersForOwner_rejectsConfirmedAndCancelledAsFilterValues() {
-        when(restaurantService.requireRestaurant(5L)).thenReturn(visibleRestaurant());
+        when(ownershipGuard.requireOwnedRestaurant(5L)).thenReturn(visibleRestaurant());
 
         assertThatThrownBy(() -> orderService.listOrdersForOwner(5L, "CONFIRMED", 0, 20))
                 .isInstanceOf(InvalidRequestParameterException.class);
@@ -656,7 +656,7 @@ class OrderServiceTest {
 
     @Test
     void listOrdersForOwner_rejectsUnknownStatusValue() {
-        when(restaurantService.requireRestaurant(5L)).thenReturn(visibleRestaurant());
+        when(ownershipGuard.requireOwnedRestaurant(5L)).thenReturn(visibleRestaurant());
 
         assertThatThrownBy(() -> orderService.listOrdersForOwner(5L, "SHIPPED", 0, 20))
                 .isInstanceOf(InvalidRequestParameterException.class);
@@ -664,7 +664,7 @@ class OrderServiceTest {
 
     @Test
     void listOrdersForOwner_rejectsInvalidPagination() {
-        when(restaurantService.requireRestaurant(5L)).thenReturn(visibleRestaurant());
+        when(ownershipGuard.requireOwnedRestaurant(5L)).thenReturn(visibleRestaurant());
 
         assertThatThrownBy(() -> orderService.listOrdersForOwner(5L, null, -1, 20))
                 .isInstanceOf(InvalidRequestParameterException.class);
@@ -676,7 +676,7 @@ class OrderServiceTest {
 
     @Test
     void listOrdersForOwner_throwsNotFound_whenRestaurantDoesNotExist() {
-        when(restaurantService.requireRestaurant(99L)).thenThrow(new RestaurantNotFoundException("Restaurant not found: 99"));
+        when(ownershipGuard.requireOwnedRestaurant(99L)).thenThrow(new RestaurantNotFoundException("Restaurant not found: 99"));
 
         assertThatThrownBy(() -> orderService.listOrdersForOwner(99L, null, 0, 20))
                 .isInstanceOf(RestaurantNotFoundException.class);
@@ -704,7 +704,7 @@ class OrderServiceTest {
     @Test
     void getDashboard_returnsStatsAndRecentOrders() {
         Restaurant restaurant = visibleRestaurant();
-        when(restaurantService.requireRestaurant(5L)).thenReturn(restaurant);
+        when(ownershipGuard.requireOwnedRestaurant(5L)).thenReturn(restaurant);
         when(orderRepository.countByRestaurantIdAndStatus(5L, OrderStatus.NEW)).thenReturn(3L);
         when(orderRepository.countByRestaurantIdAndStatus(5L, OrderStatus.PREPARING)).thenReturn(2L);
         when(orderRepository.countByRestaurantIdAndStatus(5L, OrderStatus.ON_THE_WAY)).thenReturn(1L);
@@ -725,7 +725,7 @@ class OrderServiceTest {
 
     @Test
     void getDashboard_throwsNotFound_whenRestaurantDoesNotExist() {
-        when(restaurantService.requireRestaurant(99L)).thenThrow(new RestaurantNotFoundException("Restaurant not found: 99"));
+        when(ownershipGuard.requireOwnedRestaurant(99L)).thenThrow(new RestaurantNotFoundException("Restaurant not found: 99"));
 
         assertThatThrownBy(() -> orderService.getDashboard(99L)).isInstanceOf(RestaurantNotFoundException.class);
     }

@@ -71,4 +71,24 @@ class SecurityFilterChainIntegrationTest {
         mockMvc.perform(get("/api/v1/cart").cookie(new Cookie("auth_token", "not-a-real-token")))
                 .andExpect(status().isUnauthorized());
     }
+
+    @Test
+    void ownerRoute_returns401_forAnAnonymousCaller() throws Exception {
+        mockMvc.perform(get("/api/v1/owner/restaurants/1"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void ownerRoute_returns401_forAGarbageToken() throws Exception {
+        mockMvc.perform(get("/api/v1/owner/restaurants/1").cookie(new Cookie("auth_token", "not-a-real-token")))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void ownerRoute_passesTheFilterChain_forAnAuthenticatedCaller_thenIsRejectedByTheOwnershipGuard() throws Exception {
+        // The authenticated user owns no restaurant, so the request clears the filter-chain
+        // 'authenticated()' rule and is stopped by RestaurantOwnershipGuard with 403 (not 401).
+        mockMvc.perform(get("/api/v1/owner/restaurants/1").cookie(new Cookie("auth_token", validToken)))
+                .andExpect(status().isForbidden());
+    }
 }

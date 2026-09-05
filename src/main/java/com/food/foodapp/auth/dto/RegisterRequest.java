@@ -33,4 +33,13 @@ public class RegisterRequest {
      */
     @Size(max = 30, message = "Phone must be at most 30 characters")
     private String phone;
+
+    /**
+     * The restaurant name for an owner sign-up. Required when {@code role == OWNER} (validated in
+     * {@link com.food.foodapp.auth.service.AuthService#register}); ignored for a customer. The
+     * owner's restaurant is created in {@code PENDING} approval status and the owner configures the
+     * rest (cuisine, delivery fee, hours) afterward through the owner settings endpoint.
+     */
+    @Size(max = 150, message = "Restaurant name must be at most 150 characters")
+    private String restaurantName;
 }

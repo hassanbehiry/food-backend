@@ -14,10 +14,15 @@ import com.food.foodapp.common.exception.DuplicateEmailException;
 import com.food.foodapp.common.exception.InvalidCredentialsException;
 import com.food.foodapp.common.exception.InvalidRequestParameterException;
 import com.food.foodapp.common.exception.RestaurantRegistrationClosedException;
+import com.food.foodapp.restaurant.entity.Restaurant;
+import com.food.foodapp.restaurant.entity.RestaurantApprovalStatus;
+import com.food.foodapp.restaurant.repository.RestaurantRepository;
 import com.food.foodapp.settings.service.PlatformSettingsService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.math.BigDecimal;
 
 /**
  * Contains all authentication business logic.
@@ -31,6 +36,7 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final JwtUtil jwtUtil;
     private final PlatformSettingsService platformSettingsService;
+    private final RestaurantRepository restaurantRepository;
 
     /**
      * Registers a new user.
@@ -52,8 +58,13 @@ public class AuthService {
             throw new InvalidRequestParameterException("role must be CUSTOMER or OWNER");
         }
 
-        if (request.getRole() == Role.OWNER && !platformSettingsService.isRestaurantRegistrationAllowed()) {
-            throw new RestaurantRegistrationClosedException("Restaurant registration is currently closed");
+        if (request.getRole() == Role.OWNER) {
+            if (!platformSettingsService.isRestaurantRegistrationAllowed()) {
+                throw new RestaurantRegistrationClosedException("Restaurant registration is currently closed");
+            }
+            if (request.getRestaurantName() == null || request.getRestaurantName().isBlank()) {
+                throw new InvalidRequestParameterException("restaurantName is required for an owner registration");
+            }
         }
 
         // Normalize email: lowercase + trim
@@ -76,6 +87,25 @@ public class AuthService {
 
         // Save to database
         userRepository.save(user);
+
+        // An owner gets a restaurant to manage, created in PENDING approval status in the same
+        // transaction so "my restaurant" is always resolvable. The owner fills in cuisine,
+        // delivery fee and hours afterward via the owner settings endpoint; the placeholder
+        // values here satisfy the entity's NOT NULL / CHECK constraints without pretending to be
+        // real, and PENDING keeps the restaurant out of customer discovery until an admin approves.
+        if (request.getRole() == Role.OWNER) {
+            Restaurant restaurant = new Restaurant();
+            restaurant.setName(request.getRestaurantName().trim());
+            restaurant.setCuisine(request.getRestaurantName().trim());
+            restaurant.setOwner(user);
+            restaurant.setApprovalStatus(RestaurantApprovalStatus.PENDING);
+            restaurant.setOpenForOrders(false);
+            restaurant.setDeliveryFee(BigDecimal.ZERO);
+            restaurant.setMinimumOrder(BigDecimal.ZERO);
+            restaurant.setEstimatedDeliveryMinMinutes(30);
+            restaurant.setEstimatedDeliveryMaxMinutes(60);
+            restaurantRepository.save(restaurant);
+        }
 
         // Return success message only — no JWT cookie on registration
         return AuthResponse.builder()

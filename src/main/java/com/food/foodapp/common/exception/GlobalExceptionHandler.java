@@ -300,6 +300,15 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.FORBIDDEN).body(error);
     }
 
+    @ExceptionHandler(OwnerAccessDeniedException.class)
+    public ResponseEntity<ErrorResponse> handleOwnerAccessDenied(OwnerAccessDeniedException ex) {
+        ErrorResponse error = ErrorResponse.builder()
+                .status(HttpStatus.FORBIDDEN.value())
+                .message(ex.getMessage())
+                .build();
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(error);
+    }
+
     @ExceptionHandler(ReviewNotEligibleException.class)
     public ResponseEntity<ErrorResponse> handleReviewNotEligible(ReviewNotEligibleException ex) {
         ErrorResponse error = ErrorResponse.builder()

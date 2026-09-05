@@ -11,6 +11,7 @@ import com.food.foodapp.menu.entity.MenuCategory;
 import com.food.foodapp.menu.mapper.MenuCategoryMapper;
 import com.food.foodapp.menu.repository.MenuCategoryRepository;
 import com.food.foodapp.restaurant.entity.Restaurant;
+import com.food.foodapp.restaurant.service.RestaurantOwnershipGuard;
 import com.food.foodapp.restaurant.service.RestaurantService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -35,6 +36,7 @@ public class MenuCategoryService {
 
     private final MenuCategoryRepository menuCategoryRepository;
     private final RestaurantService restaurantService;
+    private final RestaurantOwnershipGuard ownershipGuard;
 
     @Transactional(readOnly = true)
     public List<MenuCategoryResponse> listVisibleCategories(Long restaurantId) {
@@ -46,7 +48,7 @@ public class MenuCategoryService {
 
     @Transactional(readOnly = true)
     public List<MenuCategoryResponse> listCategoriesForOwner(Long restaurantId) {
-        restaurantService.requireRestaurant(restaurantId);
+        ownershipGuard.requireOwnedRestaurant(restaurantId);
         return menuCategoryRepository.findByRestaurantIdOrderByDisplayOrderAscIdAsc(restaurantId).stream()
                 .map(MenuCategoryMapper::toResponse)
                 .toList();
@@ -54,7 +56,7 @@ public class MenuCategoryService {
 
     @Transactional
     public MenuCategoryResponse createCategory(Long restaurantId, MenuCategoryCreateRequest request) {
-        Restaurant restaurant = restaurantService.requireRestaurant(restaurantId);
+        Restaurant restaurant = ownershipGuard.requireOwnedRestaurant(restaurantId);
         String name = request.getName().trim();
         requireUniqueName(restaurantId, name, null);
 
@@ -68,6 +70,7 @@ public class MenuCategoryService {
 
     @Transactional
     public MenuCategoryResponse updateCategory(Long restaurantId, Long categoryId, MenuCategoryUpdateRequest request) {
+        ownershipGuard.requireOwnedRestaurant(restaurantId);
         MenuCategory category = requireOwnedCategory(restaurantId, categoryId);
         String name = request.getName().trim();
         requireUniqueName(restaurantId, name, categoryId);
@@ -80,13 +83,14 @@ public class MenuCategoryService {
 
     @Transactional
     public void deleteCategory(Long restaurantId, Long categoryId) {
+        ownershipGuard.requireOwnedRestaurant(restaurantId);
         MenuCategory category = requireOwnedCategory(restaurantId, categoryId);
         menuCategoryRepository.delete(category);
     }
 
     @Transactional
     public List<MenuCategoryResponse> reorderCategories(Long restaurantId, MenuCategoryReorderRequest request) {
-        restaurantService.requireRestaurant(restaurantId);
+        ownershipGuard.requireOwnedRestaurant(restaurantId);
         List<MenuCategory> existing = menuCategoryRepository.findByRestaurantIdOrderByDisplayOrderAscIdAsc(restaurantId);
 
         List<Long> requestedIds = request.getCategoryIds();

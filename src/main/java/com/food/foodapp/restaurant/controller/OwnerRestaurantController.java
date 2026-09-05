@@ -20,9 +20,10 @@ import org.springframework.web.bind.annotation.RestController;
  * pause/resume storefront toggle. Thin controller — all business rules live in
  * {@link RestaurantService}.
  * <p>
- * NOTE: same authorization gap as {@link com.food.foodapp.menu.controller.OwnerMenuCategoryController}
- * — this codebase has no owner-authentication middleware yet, so these endpoints are
- * only scoped to "the restaurant exists", not to the authenticated owner.
+ * Authorization: {@code /api/v1/owner/**} requires authentication at the filter chain, and
+ * {@link RestaurantService}'s owner methods call
+ * {@code RestaurantOwnershipGuard.requireOwnedRestaurant} — a caller who is not this
+ * restaurant's owner gets {@code 403}.
  */
 @RestController
 @RequestMapping("/api/v1/owner/restaurants/{restaurantId}")

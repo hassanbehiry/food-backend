@@ -1,6 +1,7 @@
 package com.food.foodapp.order.controller;
 
 import com.food.foodapp.common.exception.InvalidRequestParameterException;
+import com.food.foodapp.common.exception.OwnerAccessDeniedException;
 import com.food.foodapp.common.exception.RestaurantNotFoundException;
 import com.food.foodapp.order.dto.DailyRevenueResponse;
 import com.food.foodapp.order.dto.OwnerAnalyticsOverviewResponse;
@@ -31,6 +32,15 @@ class OwnerAnalyticsControllerTest {
 
     @MockitoBean
     private OrderAnalyticsService orderAnalyticsService;
+
+    @Test
+    void ownerEndpoint_returns403_whenCallerDoesNotOwnTheRestaurant() throws Exception {
+        when(orderAnalyticsService.getOverview(2L)).thenThrow(new OwnerAccessDeniedException("nope"));
+
+        mockMvc.perform(get("/api/v1/owner/restaurants/2/analytics/overview"))
+                .andExpect(status().isForbidden());
+    }
+
 
     @Test
     void getOverview_returns200_withKpisAndTrends() throws Exception {

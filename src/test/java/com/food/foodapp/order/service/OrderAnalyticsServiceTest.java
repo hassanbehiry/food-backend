@@ -10,7 +10,7 @@ import com.food.foodapp.order.repository.OrderStatusCount;
 import com.food.foodapp.order.repository.RevenueAggregate;
 import com.food.foodapp.order.repository.RevenueLine;
 import com.food.foodapp.restaurant.entity.Restaurant;
-import com.food.foodapp.restaurant.service.RestaurantService;
+import com.food.foodapp.restaurant.service.RestaurantOwnershipGuard;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -40,18 +40,18 @@ class OrderAnalyticsServiceTest {
     private OrderRepository orderRepository;
 
     @Mock
-    private RestaurantService restaurantService;
+    private RestaurantOwnershipGuard ownershipGuard;
 
     private OrderAnalyticsService orderAnalyticsService;
 
     @BeforeEach
     void setUp() {
-        orderAnalyticsService = new OrderAnalyticsService(orderRepository, restaurantService);
+        orderAnalyticsService = new OrderAnalyticsService(orderRepository, ownershipGuard);
     }
 
     @Test
     void getOverview_returnsCurrentMonthTotals_withTrendPercentages() {
-        when(restaurantService.requireRestaurant(5L)).thenReturn(restaurant());
+        when(ownershipGuard.requireOwnedRestaurant(5L)).thenReturn(restaurant());
         when(orderRepository.countByRestaurantIdAndCreatedAtGreaterThanEqualAndCreatedAtLessThan(eq(5L), any(), any()))
                 .thenReturn(20L, 15L);
         when(orderRepository.sumRevenueByRestaurantAndStatusInRange(eq(5L), eq(OrderStatus.DELIVERED), any(), any()))
@@ -81,7 +81,7 @@ class OrderAnalyticsServiceTest {
 
     @Test
     void getOverview_returnsNullTrend_whenPreviousPeriodHadNoActivity() {
-        when(restaurantService.requireRestaurant(5L)).thenReturn(restaurant());
+        when(ownershipGuard.requireOwnedRestaurant(5L)).thenReturn(restaurant());
         when(orderRepository.countByRestaurantIdAndCreatedAtGreaterThanEqualAndCreatedAtLessThan(eq(5L), any(), any()))
                 .thenReturn(5L, 0L);
         when(orderRepository.sumRevenueByRestaurantAndStatusInRange(eq(5L), eq(OrderStatus.DELIVERED), any(), any()))
@@ -96,7 +96,7 @@ class OrderAnalyticsServiceTest {
 
     @Test
     void getOverview_returnsZeroTrendAndZeroAverage_whenCurrentAndPreviousAreBothEmpty() {
-        when(restaurantService.requireRestaurant(5L)).thenReturn(restaurant());
+        when(ownershipGuard.requireOwnedRestaurant(5L)).thenReturn(restaurant());
         when(orderRepository.countByRestaurantIdAndCreatedAtGreaterThanEqualAndCreatedAtLessThan(eq(5L), any(), any()))
                 .thenReturn(0L, 0L);
         when(orderRepository.sumRevenueByRestaurantAndStatusInRange(eq(5L), eq(OrderStatus.DELIVERED), any(), any()))
@@ -113,7 +113,7 @@ class OrderAnalyticsServiceTest {
 
     @Test
     void getOverview_throwsNotFound_whenRestaurantDoesNotExist() {
-        when(restaurantService.requireRestaurant(99L))
+        when(ownershipGuard.requireOwnedRestaurant(99L))
                 .thenThrow(new RestaurantNotFoundException("Restaurant not found: 99"));
 
         assertThatThrownBy(() -> orderAnalyticsService.getOverview(99L)).isInstanceOf(RestaurantNotFoundException.class);
@@ -121,7 +121,7 @@ class OrderAnalyticsServiceTest {
 
     @Test
     void getRevenue_returnsDailyRevenue_zeroFilledForDaysWithNoDeliveredOrders() {
-        when(restaurantService.requireRestaurant(5L)).thenReturn(restaurant());
+        when(ownershipGuard.requireOwnedRestaurant(5L)).thenReturn(restaurant());
         LocalDate from = LocalDate.of(2026, 8, 1);
         LocalDate to = LocalDate.of(2026, 8, 3);
         when(orderRepository.sumRevenueByRestaurantAndStatusInRange(eq(5L), eq(OrderStatus.DELIVERED), any(), any()))
@@ -150,7 +150,7 @@ class OrderAnalyticsServiceTest {
 
     @Test
     void getRevenue_queriesPreviousPeriod_asImmediatelyPrecedingRangeOfSameLength() {
-        when(restaurantService.requireRestaurant(5L)).thenReturn(restaurant());
+        when(ownershipGuard.requireOwnedRestaurant(5L)).thenReturn(restaurant());
         when(orderRepository.sumRevenueByRestaurantAndStatusInRange(eq(5L), eq(OrderStatus.DELIVERED), any(), any()))
                 .thenReturn(new RevenueAggregate(BigDecimal.ZERO, 0L));
         when(orderRepository.findRevenueLinesByRestaurantAndStatusInRange(eq(5L), eq(OrderStatus.DELIVERED), any(), any()))
@@ -173,7 +173,7 @@ class OrderAnalyticsServiceTest {
 
     @Test
     void getRevenue_defaultsToCurrentSaturdayToFridayWeek_whenBothBoundsOmitted() {
-        when(restaurantService.requireRestaurant(5L)).thenReturn(restaurant());
+        when(ownershipGuard.requireOwnedRestaurant(5L)).thenReturn(restaurant());
         when(orderRepository.sumRevenueByRestaurantAndStatusInRange(eq(5L), eq(OrderStatus.DELIVERED), any(), any()))
                 .thenReturn(new RevenueAggregate(BigDecimal.ZERO, 0L));
         when(orderRepository.findRevenueLinesByRestaurantAndStatusInRange(eq(5L), eq(OrderStatus.DELIVERED), any(), any()))
@@ -192,7 +192,7 @@ class OrderAnalyticsServiceTest {
 
     @Test
     void getRevenue_rejectsFromWithoutTo() {
-        when(restaurantService.requireRestaurant(5L)).thenReturn(restaurant());
+        when(ownershipGuard.requireOwnedRestaurant(5L)).thenReturn(restaurant());
 
         assertThatThrownBy(() -> orderAnalyticsService.getRevenue(5L, LocalDate.of(2026, 8, 1), null))
                 .isInstanceOf(InvalidRequestParameterException.class);
@@ -200,7 +200,7 @@ class OrderAnalyticsServiceTest {
 
     @Test
     void getRevenue_rejectsToWithoutFrom() {
-        when(restaurantService.requireRestaurant(5L)).thenReturn(restaurant());
+        when(ownershipGuard.requireOwnedRestaurant(5L)).thenReturn(restaurant());
 
         assertThatThrownBy(() -> orderAnalyticsService.getRevenue(5L, null, LocalDate.of(2026, 8, 1)))
                 .isInstanceOf(InvalidRequestParameterException.class);
@@ -208,7 +208,7 @@ class OrderAnalyticsServiceTest {
 
     @Test
     void getRevenue_rejectsFromAfterTo() {
-        when(restaurantService.requireRestaurant(5L)).thenReturn(restaurant());
+        when(ownershipGuard.requireOwnedRestaurant(5L)).thenReturn(restaurant());
 
         assertThatThrownBy(() -> orderAnalyticsService.getRevenue(5L, LocalDate.of(2026, 8, 10), LocalDate.of(2026, 8, 1)))
                 .isInstanceOf(InvalidRequestParameterException.class);
@@ -216,7 +216,7 @@ class OrderAnalyticsServiceTest {
 
     @Test
     void getRevenue_rejectsRangeExceedingMaxDays() {
-        when(restaurantService.requireRestaurant(5L)).thenReturn(restaurant());
+        when(ownershipGuard.requireOwnedRestaurant(5L)).thenReturn(restaurant());
 
         assertThatThrownBy(() -> orderAnalyticsService.getRevenue(5L, LocalDate.of(2020, 1, 1), LocalDate.of(2026, 1, 1)))
                 .isInstanceOf(InvalidRequestParameterException.class);
@@ -224,7 +224,7 @@ class OrderAnalyticsServiceTest {
 
     @Test
     void getRevenue_throwsNotFound_whenRestaurantDoesNotExist() {
-        when(restaurantService.requireRestaurant(99L))
+        when(ownershipGuard.requireOwnedRestaurant(99L))
                 .thenThrow(new RestaurantNotFoundException("Restaurant not found: 99"));
 
         assertThatThrownBy(() -> orderAnalyticsService.getRevenue(99L, null, null))
