@@ -24,11 +24,9 @@ import java.util.List;
  * Owner-side menu category (tab) management: create, update, delete, reorder.
  * Thin controller — all business rules live in {@link MenuCategoryService}.
  * <p>
- * NOTE: this codebase has no authentication/authorization middleware yet (no Spring
- * Security, no owner-restaurant link on {@code Restaurant}), so these endpoints are
- * not yet gated to the authenticated restaurant owner. Cross-restaurant protection is
- * still enforced at the data level — every path here resolves a category strictly
- * within its {@code restaurantId}.
+ * Authorization: {@code /api/v1/owner/**} requires authentication at the filter chain, and
+ * {@link MenuCategoryService} calls {@code RestaurantOwnershipGuard.requireOwnedRestaurant} before
+ * every mutation — an authenticated caller who is not the restaurant's owner gets {@code 403}.
  */
 @RestController
 @RequestMapping("/api/v1/owner/restaurants/{restaurantId}/menu/categories")

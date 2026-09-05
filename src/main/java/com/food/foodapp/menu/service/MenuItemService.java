@@ -15,6 +15,7 @@ import com.food.foodapp.menu.mapper.MenuItemMapper;
 import com.food.foodapp.menu.repository.MenuCategoryRepository;
 import com.food.foodapp.menu.repository.MenuItemRepository;
 import com.food.foodapp.restaurant.entity.Restaurant;
+import com.food.foodapp.restaurant.service.RestaurantOwnershipGuard;
 import com.food.foodapp.restaurant.service.RestaurantService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -36,6 +37,7 @@ public class MenuItemService {
     private final MenuCategoryRepository menuCategoryRepository;
     private final MenuCategoryService menuCategoryService;
     private final RestaurantService restaurantService;
+    private final RestaurantOwnershipGuard ownershipGuard;
 
     @Transactional(readOnly = true)
     public RestaurantMenuResponse getMenu(Long restaurantId) {
@@ -70,7 +72,7 @@ public class MenuItemService {
 
     @Transactional(readOnly = true)
     public List<OwnerMenuItemResponse> listItemsForOwner(Long restaurantId) {
-        restaurantService.requireRestaurant(restaurantId);
+        ownershipGuard.requireOwnedRestaurant(restaurantId);
         return menuItemRepository.findAllByRestaurantIdOrdered(restaurantId).stream()
                 .map(MenuItemMapper::toOwnerResponse)
                 .toList();
@@ -78,7 +80,7 @@ public class MenuItemService {
 
     @Transactional
     public OwnerMenuItemResponse createItem(Long restaurantId, MenuItemCreateRequest request) {
-        Restaurant restaurant = restaurantService.requireRestaurant(restaurantId);
+        Restaurant restaurant = ownershipGuard.requireOwnedRestaurant(restaurantId);
         MenuCategory category = requireOwnedCategory(restaurantId, request.getCategoryId());
 
         MenuItem item = new MenuItem();
@@ -95,6 +97,7 @@ public class MenuItemService {
 
     @Transactional
     public OwnerMenuItemResponse updateItem(Long restaurantId, Long itemId, MenuItemUpdateRequest request) {
+        ownershipGuard.requireOwnedRestaurant(restaurantId);
         MenuItem item = requireOwnedItem(restaurantId, itemId);
         MenuCategory category = requireOwnedCategory(restaurantId, request.getCategoryId());
 
@@ -112,12 +115,14 @@ public class MenuItemService {
 
     @Transactional
     public void deleteItem(Long restaurantId, Long itemId) {
+        ownershipGuard.requireOwnedRestaurant(restaurantId);
         MenuItem item = requireOwnedItem(restaurantId, itemId);
         menuItemRepository.delete(item);
     }
 
     @Transactional
     public OwnerMenuItemResponse updateAvailability(Long restaurantId, Long itemId, MenuItemAvailabilityRequest request) {
+        ownershipGuard.requireOwnedRestaurant(restaurantId);
         MenuItem item = requireOwnedItem(restaurantId, itemId);
         item.setAvailable(request.getAvailable());
         return MenuItemMapper.toOwnerResponse(menuItemRepository.save(item));

@@ -15,9 +15,12 @@ import org.springframework.web.bind.annotation.RestController;
  * paginated/filterable order list rather than replacing it — the dashboard's "Orders" tab still
  * calls that endpoint directly for full pagination and status filtering.
  * <p>
- * Only the {@code {restaurantId}}-scoped form is implemented: resolving "the current owner's
- * restaurant" without a path id isn't possible yet, since no owner-authentication/owner-restaurant
- * link exists in this codebase (same gap {@link OwnerOrderController} already documents).
+ * Only the {@code {restaurantId}}-scoped form is implemented here; the no-argument
+ * {@code GET /api/v1/owner/dashboard} that resolves the caller's own restaurant via
+ * {@code RestaurantRepository.findByOwnerId} is a later task (BACKEND-008). Authorization:
+ * {@code OrderService.getDashboard} calls {@code RestaurantOwnershipGuard.requireOwnedRestaurant},
+ * so a caller who does not own {@code restaurantId} gets {@code 403} (and an anonymous caller
+ * {@code 401} at the filter chain).
  */
 @RestController
 @RequestMapping("/api/v1/owner/dashboard")

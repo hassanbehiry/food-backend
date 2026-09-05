@@ -51,6 +51,7 @@ public class RestaurantService {
     private static final int MAX_PAGE_SIZE = 50;
 
     private final RestaurantRepository restaurantRepository;
+    private final RestaurantOwnershipGuard ownershipGuard;
 
     @Transactional(readOnly = true)
     public RestaurantListResponse searchRestaurants(String q, String categorySlug, String sort, int page, int size) {
@@ -131,15 +132,15 @@ public class RestaurantService {
         return restaurant.getApprovalStatus() == RestaurantApprovalStatus.APPROVED && restaurant.isOpenForOrders();
     }
 
-    /** Owner-facing settings view — works regardless of approval/open status. */
+    /** Owner-facing settings view — works regardless of approval/open status; caller must own it. */
     @Transactional(readOnly = true)
     public OwnerRestaurantResponse getOwnerRestaurant(Long id) {
-        return RestaurantMapper.toOwnerResponse(requireRestaurant(id));
+        return RestaurantMapper.toOwnerResponse(ownershipGuard.requireOwnedRestaurant(id));
     }
 
     @Transactional
     public OwnerRestaurantResponse updateSettings(Long id, RestaurantSettingsUpdateRequest request) {
-        Restaurant restaurant = requireRestaurant(id);
+        Restaurant restaurant = ownershipGuard.requireOwnedRestaurant(id);
         validateBusinessHours(request.getOpenTime(), request.getCloseTime());
 
         restaurant.setName(request.getName().trim());
@@ -155,7 +156,7 @@ public class RestaurantService {
     /** Pause/resume the storefront. Distinct from admin approval — see {@link Restaurant#getApprovalStatus()}. */
     @Transactional
     public OwnerRestaurantResponse updateAvailability(Long id, RestaurantAvailabilityRequest request) {
-        Restaurant restaurant = requireRestaurant(id);
+        Restaurant restaurant = ownershipGuard.requireOwnedRestaurant(id);
         restaurant.setOpenForOrders(request.getOpenForOrders());
         return RestaurantMapper.toOwnerResponse(restaurantRepository.save(restaurant));
     }

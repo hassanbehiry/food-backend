@@ -1,5 +1,6 @@
 package com.food.foodapp.restaurant.entity;
 
+import com.food.foodapp.auth.entity.User;
 import com.food.foodapp.category.entity.Category;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -12,6 +13,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.JoinTable;
 import jakarta.persistence.ManyToMany;
+import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -95,6 +97,16 @@ public class Restaurant {
     @Enumerated(EnumType.STRING)
     @Column(name = "approval_status", nullable = false, length = 20)
     private RestaurantApprovalStatus approvalStatus = RestaurantApprovalStatus.PENDING;
+
+    /**
+     * The user who owns and manages this restaurant. {@code null} for legacy/seed rows that
+     * predate ownership — those are unmanageable through {@code /api/v1/owner/**} (every call
+     * 403s via {@link com.food.foodapp.restaurant.service.RestaurantOwnershipGuard}) until an
+     * owner is assigned.
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "owner_id")
+    private User owner;
 
     @ManyToMany(fetch = FetchType.LAZY)
     @JoinTable(

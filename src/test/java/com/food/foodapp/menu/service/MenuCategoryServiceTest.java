@@ -13,6 +13,7 @@ import com.food.foodapp.menu.repository.MenuCategoryRepository;
 import com.food.foodapp.restaurant.entity.Restaurant;
 import com.food.foodapp.restaurant.entity.RestaurantApprovalStatus;
 import com.food.foodapp.restaurant.repository.RestaurantRepository;
+import com.food.foodapp.restaurant.service.RestaurantOwnershipGuard;
 import com.food.foodapp.restaurant.service.RestaurantService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -40,12 +41,15 @@ class MenuCategoryServiceTest {
     @Mock
     private RestaurantRepository restaurantRepository;
 
+    @Mock
+    private RestaurantOwnershipGuard ownershipGuard;
+
     private MenuCategoryService menuCategoryService;
 
     @BeforeEach
     void setUp() {
-        RestaurantService restaurantService = new RestaurantService(restaurantRepository);
-        menuCategoryService = new MenuCategoryService(menuCategoryRepository, restaurantService);
+        RestaurantService restaurantService = new RestaurantService(restaurantRepository, ownershipGuard);
+        menuCategoryService = new MenuCategoryService(menuCategoryRepository, restaurantService, ownershipGuard);
     }
 
     @Test
@@ -72,7 +76,6 @@ class MenuCategoryServiceTest {
 
     @Test
     void listCategoriesForOwner_includesInactiveCategories() {
-        when(restaurantRepository.findById(1L)).thenReturn(Optional.of(approvedOpenRestaurant()));
         when(menuCategoryRepository.findByRestaurantIdOrderByDisplayOrderAscIdAsc(1L))
                 .thenReturn(List.of(category(10L, "بيتزا", 0, true), category(11L, "مشروبات", 1, false)));
 
@@ -84,7 +87,7 @@ class MenuCategoryServiceTest {
     @Test
     void createCategory_appendsToEndOfDisplayOrder() {
         Restaurant restaurant = approvedOpenRestaurant();
-        when(restaurantRepository.findById(1L)).thenReturn(Optional.of(restaurant));
+        when(ownershipGuard.requireOwnedRestaurant(1L)).thenReturn(restaurant);
         when(menuCategoryRepository.existsByRestaurantIdAndNameIgnoreCase(1L, "باستا")).thenReturn(false);
         when(menuCategoryRepository.findMaxDisplayOrder(1L)).thenReturn(2);
         when(menuCategoryRepository.save(any(MenuCategory.class))).thenAnswer(invocation -> invocation.getArgument(0));
@@ -100,7 +103,8 @@ class MenuCategoryServiceTest {
 
     @Test
     void createCategory_throwsNotFound_whenRestaurantMissing() {
-        when(restaurantRepository.findById(99L)).thenReturn(Optional.empty());
+        when(ownershipGuard.requireOwnedRestaurant(99L))
+                .thenThrow(new RestaurantNotFoundException("Restaurant not found: 99"));
         MenuCategoryCreateRequest request = new MenuCategoryCreateRequest();
         request.setName("باستا");
 
@@ -110,8 +114,20 @@ class MenuCategoryServiceTest {
     }
 
     @Test
+    void createCategory_propagatesForbidden_whenCallerDoesNotOwnRestaurant() {
+        when(ownershipGuard.requireOwnedRestaurant(1L))
+                .thenThrow(new com.food.foodapp.common.exception.OwnerAccessDeniedException("not yours"));
+        MenuCategoryCreateRequest request = new MenuCategoryCreateRequest();
+        request.setName("باستا");
+
+        assertThatThrownBy(() -> menuCategoryService.createCategory(1L, request))
+                .isInstanceOf(com.food.foodapp.common.exception.OwnerAccessDeniedException.class);
+        verify(menuCategoryRepository, never()).save(any());
+    }
+
+    @Test
     void createCategory_throwsDuplicate_whenNameAlreadyExistsForRestaurant() {
-        when(restaurantRepository.findById(1L)).thenReturn(Optional.of(approvedOpenRestaurant()));
+        when(ownershipGuard.requireOwnedRestaurant(1L)).thenReturn(approvedOpenRestaurant());
         when(menuCategoryRepository.existsByRestaurantIdAndNameIgnoreCase(1L, "بيتزا")).thenReturn(true);
         MenuCategoryCreateRequest request = new MenuCategoryCreateRequest();
         request.setName("بيتزا");
@@ -170,7 +186,6 @@ class MenuCategoryServiceTest {
 
     @Test
     void reorderCategories_reassignsDisplayOrderByRequestedPosition() {
-        when(restaurantRepository.findById(1L)).thenReturn(Optional.of(approvedOpenRestaurant()));
         MenuCategory first = category(10L, "بيتزا", 0, true);
         MenuCategory second = category(11L, "مشروبات", 1, true);
         when(menuCategoryRepository.findByRestaurantIdOrderByDisplayOrderAscIdAsc(1L))
@@ -188,7 +203,6 @@ class MenuCategoryServiceTest {
 
     @Test
     void reorderCategories_rejectsRequest_whenIdSetDoesNotMatchExisting() {
-        when(restaurantRepository.findById(1L)).thenReturn(Optional.of(approvedOpenRestaurant()));
         when(menuCategoryRepository.findByRestaurantIdOrderByDisplayOrderAscIdAsc(1L))
                 .thenReturn(List.of(category(10L, "بيتزا", 0, true)));
 
@@ -201,7 +215,6 @@ class MenuCategoryServiceTest {
 
     @Test
     void reorderCategories_rejectsRequest_whenDuplicateIdsGiven() {
-        when(restaurantRepository.findById(1L)).thenReturn(Optional.of(approvedOpenRestaurant()));
         when(menuCategoryRepository.findByRestaurantIdOrderByDisplayOrderAscIdAsc(1L))
                 .thenReturn(List.of(category(10L, "بيتزا", 0, true), category(11L, "مشروبات", 1, true)));
 

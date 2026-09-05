@@ -19,6 +19,13 @@ public interface RestaurantRepository extends JpaRepository<Restaurant, Long>, J
     Optional<Restaurant> findByIdWithCategories(@Param("id") Long id);
 
     /**
+     * The authenticated owner's restaurant. Owner registration creates exactly one restaurant per
+     * owner, so this resolves "my restaurant" for the no-argument owner dashboard without the
+     * client passing a restaurant id.
+     */
+    Optional<Restaurant> findByOwnerId(Long ownerId);
+
+    /**
      * Category slugs for a page of restaurants, as flat (restaurant id, slug) rows — one small
      * query for the whole page, so the list response's {@code categoryIds} field never triggers
      * an N+1 and the to-many join never multiplies the paged restaurant rows themselves.

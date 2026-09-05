@@ -2,6 +2,7 @@ package com.food.foodapp.menu.controller;
 
 import com.food.foodapp.common.exception.MenuCategoryNotFoundException;
 import com.food.foodapp.common.exception.MenuItemNotFoundException;
+import com.food.foodapp.common.exception.OwnerAccessDeniedException;
 import com.food.foodapp.common.exception.RestaurantNotFoundException;
 import com.food.foodapp.menu.dto.OwnerMenuItemResponse;
 import com.food.foodapp.menu.service.MenuItemService;
@@ -36,6 +37,15 @@ class OwnerMenuItemControllerTest {
 
     @MockitoBean
     private MenuItemService menuItemService;
+
+    @Test
+    void ownerEndpoint_returns403_whenCallerDoesNotOwnTheRestaurant() throws Exception {
+        when(menuItemService.listItemsForOwner(2L)).thenThrow(new OwnerAccessDeniedException("nope"));
+
+        mockMvc.perform(get("/api/v1/owner/restaurants/2/items"))
+                .andExpect(status().isForbidden());
+    }
+
 
     @Test
     void list_returnsAllItems() throws Exception {

@@ -14,9 +14,13 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 /**
  * Wires the application onto Spring Security.
  *
- * <p>Every request except {@code /api/v1/admin/**} is permitted at the filter-chain level;
- * authentication for customer/owner features is still enforced deeper in the stack by feature
- * services that call {@link UserContext}. {@link JwtCookieAuthenticationFilter} runs on every
+ * <p>{@code /api/v1/admin/**} requires the {@code ADMIN} authority and {@code /api/v1/owner/**}
+ * requires authentication; every other request is permitted at the filter-chain level, with
+ * per-customer authentication still enforced deeper in the stack by feature services that call
+ * {@link UserContext}. Owner routes additionally get a per-restaurant ownership check in the
+ * service layer ({@code RestaurantOwnershipGuard}); the filter-chain rule here only guarantees
+ * the caller is authenticated so that check has an identity to compare against.
+ * {@link JwtCookieAuthenticationFilter} runs on every
  * request and, when a valid {@code auth_token} cookie is present, publishes the caller — id plus a
  * {@code ROLE_<name>} authority — into the
  * {@link org.springframework.security.core.context.SecurityContextHolder}.
@@ -49,6 +53,7 @@ public class SecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
+                        .requestMatchers("/api/v1/owner/**").authenticated()
                         .anyRequest().permitAll())
                 .exceptionHandling(ex -> ex
                         .authenticationEntryPoint(restAuthenticationEntryPoint)

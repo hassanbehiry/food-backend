@@ -28,9 +28,9 @@ import java.util.List;
  * Paths sit one level shallower than {@code /menu/items} to match the frontend's
  * {@code adminService.js}, which already calls these concrete owner-side paths.
  * <p>
- * NOTE: same authorization gap as {@link OwnerMenuCategoryController} — this
- * codebase has no owner-authentication middleware yet, so these endpoints are only
- * scoped to "the item belongs to this restaurantId", not to the authenticated owner.
+ * Authorization: {@code /api/v1/owner/**} requires authentication at the filter chain, and
+ * {@link MenuItemService} calls {@code RestaurantOwnershipGuard.requireOwnedRestaurant} before
+ * every owner operation — a caller who does not own {@code restaurantId} gets {@code 403}.
  */
 @RestController
 @RequestMapping("/api/v1/owner/restaurants/{restaurantId}/items")

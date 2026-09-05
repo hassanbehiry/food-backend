@@ -2,6 +2,7 @@ package com.food.foodapp.menu.controller;
 
 import com.food.foodapp.common.exception.DuplicateMenuCategoryException;
 import com.food.foodapp.common.exception.MenuCategoryNotFoundException;
+import com.food.foodapp.common.exception.OwnerAccessDeniedException;
 import com.food.foodapp.common.exception.RestaurantNotFoundException;
 import com.food.foodapp.menu.dto.MenuCategoryResponse;
 import com.food.foodapp.menu.service.MenuCategoryService;
@@ -19,6 +20,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -33,6 +35,15 @@ class OwnerMenuCategoryControllerTest {
 
     @MockitoBean
     private MenuCategoryService menuCategoryService;
+
+    @Test
+    void ownerEndpoint_returns403_whenCallerDoesNotOwnTheRestaurant() throws Exception {
+        when(menuCategoryService.listCategoriesForOwner(2L)).thenThrow(new OwnerAccessDeniedException("nope"));
+
+        mockMvc.perform(get("/api/v1/owner/restaurants/2/menu/categories"))
+                .andExpect(status().isForbidden());
+    }
+
 
     @Test
     void create_returns201_withCreatedCategory() throws Exception {

@@ -3,6 +3,7 @@ package com.food.foodapp.order.controller;
 import com.food.foodapp.common.exception.InvalidOrderStatusTransitionException;
 import com.food.foodapp.common.exception.InvalidRequestParameterException;
 import com.food.foodapp.common.exception.OrderNotFoundException;
+import com.food.foodapp.common.exception.OwnerAccessDeniedException;
 import com.food.foodapp.common.exception.RestaurantNotFoundException;
 import com.food.foodapp.order.dto.OrderResponse;
 import com.food.foodapp.order.dto.OwnerOrderListResponse;
@@ -39,6 +40,16 @@ class OwnerOrderControllerTest {
 
     @MockitoBean
     private OrderService orderService;
+
+    @Test
+    void ownerEndpoint_returns403_whenCallerDoesNotOwnTheRestaurant() throws Exception {
+        when(orderService.listOrdersForOwner(eq(2L), isNull(), eq(0), eq(20)))
+                .thenThrow(new OwnerAccessDeniedException("nope"));
+
+        mockMvc.perform(get("/api/v1/owner/restaurants/2/orders"))
+                .andExpect(status().isForbidden());
+    }
+
 
     @Test
     void updateStatus_returns200_withUpdatedOrder() throws Exception {

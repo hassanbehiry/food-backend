@@ -1,6 +1,7 @@
 package com.food.foodapp.restaurant.controller;
 
 import com.food.foodapp.common.exception.InvalidRequestParameterException;
+import com.food.foodapp.common.exception.OwnerAccessDeniedException;
 import com.food.foodapp.common.exception.RestaurantNotFoundException;
 import com.food.foodapp.restaurant.dto.OwnerRestaurantResponse;
 import com.food.foodapp.restaurant.service.RestaurantService;
@@ -33,6 +34,15 @@ class OwnerRestaurantControllerTest {
 
     @MockitoBean
     private RestaurantService restaurantService;
+
+    @Test
+    void get_returns403_whenCallerDoesNotOwnTheRestaurant() throws Exception {
+        when(restaurantService.getOwnerRestaurant(2L))
+                .thenThrow(new OwnerAccessDeniedException("You do not have permission to manage restaurant 2"));
+
+        mockMvc.perform(get("/api/v1/owner/restaurants/2"))
+                .andExpect(status().isForbidden());
+    }
 
     @Test
     void get_returnsOwnerRestaurant() throws Exception {

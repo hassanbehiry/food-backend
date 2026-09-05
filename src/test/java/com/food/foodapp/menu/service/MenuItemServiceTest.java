@@ -16,6 +16,7 @@ import com.food.foodapp.menu.repository.MenuItemRepository;
 import com.food.foodapp.restaurant.entity.Restaurant;
 import com.food.foodapp.restaurant.entity.RestaurantApprovalStatus;
 import com.food.foodapp.restaurant.repository.RestaurantRepository;
+import com.food.foodapp.restaurant.service.RestaurantOwnershipGuard;
 import com.food.foodapp.restaurant.service.RestaurantService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -46,13 +47,18 @@ class MenuItemServiceTest {
     @Mock
     private RestaurantRepository restaurantRepository;
 
+    @Mock
+    private RestaurantOwnershipGuard ownershipGuard;
+
     private MenuItemService menuItemService;
 
     @BeforeEach
     void setUp() {
-        RestaurantService restaurantService = new RestaurantService(restaurantRepository);
-        MenuCategoryService menuCategoryService = new MenuCategoryService(menuCategoryRepository, restaurantService);
-        menuItemService = new MenuItemService(menuItemRepository, menuCategoryRepository, menuCategoryService, restaurantService);
+        RestaurantService restaurantService = new RestaurantService(restaurantRepository, ownershipGuard);
+        MenuCategoryService menuCategoryService =
+                new MenuCategoryService(menuCategoryRepository, restaurantService, ownershipGuard);
+        menuItemService = new MenuItemService(
+                menuItemRepository, menuCategoryRepository, menuCategoryService, restaurantService, ownershipGuard);
     }
 
     @Test
@@ -117,7 +123,6 @@ class MenuItemServiceTest {
 
     @Test
     void listItemsForOwner_includesItemsFromInactiveCategories() {
-        when(restaurantRepository.findById(1L)).thenReturn(Optional.of(approvedOpenRestaurant()));
         MenuCategory archived = category(10L, "قديم", 0, false);
         when(menuItemRepository.findAllByRestaurantIdOrdered(1L))
                 .thenReturn(List.of(item(100L, archived, "منتج قديم", BigDecimal.valueOf(50), true, 0)));
@@ -131,7 +136,7 @@ class MenuItemServiceTest {
     void createItem_appendsToEndOfCategoryDisplayOrder() {
         Restaurant restaurant = approvedOpenRestaurant();
         MenuCategory pizza = category(10L, "بيتزا", 0, true);
-        when(restaurantRepository.findById(1L)).thenReturn(Optional.of(restaurant));
+        when(ownershipGuard.requireOwnedRestaurant(1L)).thenReturn(restaurant);
         when(menuCategoryRepository.findByIdAndRestaurantId(10L, 1L)).thenReturn(Optional.of(pizza));
         when(menuItemRepository.findMaxDisplayOrderInCategory(10L)).thenReturn(2);
         when(menuItemRepository.save(any(MenuItem.class))).thenAnswer(invocation -> invocation.getArgument(0));
@@ -150,7 +155,7 @@ class MenuItemServiceTest {
 
     @Test
     void createItem_throwsNotFound_whenCategoryBelongsToAnotherRestaurant() {
-        when(restaurantRepository.findById(1L)).thenReturn(Optional.of(approvedOpenRestaurant()));
+        when(ownershipGuard.requireOwnedRestaurant(1L)).thenReturn(approvedOpenRestaurant());
         when(menuCategoryRepository.findByIdAndRestaurantId(10L, 1L)).thenReturn(Optional.empty());
 
         MenuItemCreateRequest request = new MenuItemCreateRequest();
@@ -164,8 +169,23 @@ class MenuItemServiceTest {
     }
 
     @Test
+    void createItem_propagatesForbidden_whenCallerDoesNotOwnRestaurant() {
+        when(ownershipGuard.requireOwnedRestaurant(1L))
+                .thenThrow(new com.food.foodapp.common.exception.OwnerAccessDeniedException("not yours"));
+        MenuItemCreateRequest request = new MenuItemCreateRequest();
+        request.setCategoryId(10L);
+        request.setName("مارجريتا");
+        request.setPrice(BigDecimal.valueOf(50));
+
+        assertThatThrownBy(() -> menuItemService.createItem(1L, request))
+                .isInstanceOf(com.food.foodapp.common.exception.OwnerAccessDeniedException.class);
+        verify(menuItemRepository, never()).save(any());
+    }
+
+    @Test
     void createItem_throwsNotFound_whenRestaurantMissing() {
-        when(restaurantRepository.findById(99L)).thenReturn(Optional.empty());
+        when(ownershipGuard.requireOwnedRestaurant(99L))
+                .thenThrow(new RestaurantNotFoundException("Restaurant not found: 99"));
         MenuItemCreateRequest request = new MenuItemCreateRequest();
         request.setCategoryId(10L);
         request.setName("مارجريتا");

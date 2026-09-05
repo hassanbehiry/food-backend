@@ -44,11 +44,14 @@ class RestaurantServiceTest {
     @Mock
     private RestaurantRepository restaurantRepository;
 
+    @Mock
+    private RestaurantOwnershipGuard ownershipGuard;
+
     private RestaurantService restaurantService;
 
     @BeforeEach
     void setUp() {
-        restaurantService = new RestaurantService(restaurantRepository);
+        restaurantService = new RestaurantService(restaurantRepository, ownershipGuard);
     }
 
     @Test
@@ -168,7 +171,7 @@ class RestaurantServiceTest {
         Restaurant restaurant = approvedOpenRestaurant();
         restaurant.setApprovalStatus(RestaurantApprovalStatus.PENDING);
         restaurant.setOpenForOrders(false);
-        when(restaurantRepository.findById(1L)).thenReturn(Optional.of(restaurant));
+        when(ownershipGuard.requireOwnedRestaurant(1L)).thenReturn(restaurant);
 
         OwnerRestaurantResponse response = restaurantService.getOwnerRestaurant(1L);
 
@@ -177,8 +180,9 @@ class RestaurantServiceTest {
     }
 
     @Test
-    void getOwnerRestaurant_throwsNotFound_whenMissing() {
-        when(restaurantRepository.findById(99L)).thenReturn(Optional.empty());
+    void getOwnerRestaurant_propagatesNotFound_fromOwnershipGuard() {
+        when(ownershipGuard.requireOwnedRestaurant(99L))
+                .thenThrow(new RestaurantNotFoundException("Restaurant not found: 99"));
 
         assertThatThrownBy(() -> restaurantService.getOwnerRestaurant(99L))
                 .isInstanceOf(RestaurantNotFoundException.class);
@@ -187,7 +191,7 @@ class RestaurantServiceTest {
     @Test
     void updateSettings_updatesFieldsAndReturnsResponse() {
         Restaurant restaurant = approvedOpenRestaurant();
-        when(restaurantRepository.findById(1L)).thenReturn(Optional.of(restaurant));
+        when(ownershipGuard.requireOwnedRestaurant(1L)).thenReturn(restaurant);
         when(restaurantRepository.save(any(Restaurant.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         OwnerRestaurantResponse response = restaurantService.updateSettings(1L, settingsRequest());
@@ -201,8 +205,9 @@ class RestaurantServiceTest {
     }
 
     @Test
-    void updateSettings_throwsNotFound_whenMissing() {
-        when(restaurantRepository.findById(99L)).thenReturn(Optional.empty());
+    void updateSettings_propagatesNotFound_fromOwnershipGuard() {
+        when(ownershipGuard.requireOwnedRestaurant(99L))
+                .thenThrow(new RestaurantNotFoundException("Restaurant not found: 99"));
 
         assertThatThrownBy(() -> restaurantService.updateSettings(99L, settingsRequest()))
                 .isInstanceOf(RestaurantNotFoundException.class);
@@ -211,7 +216,7 @@ class RestaurantServiceTest {
     @Test
     void updateSettings_rejectsCloseTimeNotAfterOpenTime() {
         Restaurant restaurant = approvedOpenRestaurant();
-        when(restaurantRepository.findById(1L)).thenReturn(Optional.of(restaurant));
+        when(ownershipGuard.requireOwnedRestaurant(1L)).thenReturn(restaurant);
 
         RestaurantSettingsUpdateRequest request = settingsRequest();
         request.setOpenTime(LocalTime.of(12, 0));
@@ -224,7 +229,7 @@ class RestaurantServiceTest {
     @Test
     void updateAvailability_updatesFlag() {
         Restaurant restaurant = approvedOpenRestaurant();
-        when(restaurantRepository.findById(1L)).thenReturn(Optional.of(restaurant));
+        when(ownershipGuard.requireOwnedRestaurant(1L)).thenReturn(restaurant);
         when(restaurantRepository.save(any(Restaurant.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         RestaurantAvailabilityRequest request = new RestaurantAvailabilityRequest();
@@ -236,14 +241,15 @@ class RestaurantServiceTest {
     }
 
     @Test
-    void updateAvailability_throwsNotFound_whenMissing() {
-        when(restaurantRepository.findById(99L)).thenReturn(Optional.empty());
+    void updateAvailability_propagatesForbidden_fromOwnershipGuard() {
+        when(ownershipGuard.requireOwnedRestaurant(99L))
+                .thenThrow(new com.food.foodapp.common.exception.OwnerAccessDeniedException("nope"));
 
         RestaurantAvailabilityRequest request = new RestaurantAvailabilityRequest();
         request.setOpenForOrders(false);
 
         assertThatThrownBy(() -> restaurantService.updateAvailability(99L, request))
-                .isInstanceOf(RestaurantNotFoundException.class);
+                .isInstanceOf(com.food.foodapp.common.exception.OwnerAccessDeniedException.class);
     }
 
     @Test

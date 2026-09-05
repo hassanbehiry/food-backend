@@ -43,6 +43,7 @@ import com.food.foodapp.order.mapper.OrderMapper;
 import com.food.foodapp.order.repository.OrderItemCount;
 import com.food.foodapp.order.repository.OrderRepository;
 import com.food.foodapp.restaurant.entity.Restaurant;
+import com.food.foodapp.restaurant.service.RestaurantOwnershipGuard;
 import com.food.foodapp.restaurant.service.RestaurantService;
 import com.food.foodapp.settings.service.PlatformSettingsService;
 import lombok.RequiredArgsConstructor;
@@ -122,7 +123,7 @@ public class OrderService {
     private final UserRepository userRepository;
     private final OrderRepository orderRepository;
     private final UserContext userContext;
-    private final RestaurantService restaurantService;
+    private final RestaurantOwnershipGuard ownershipGuard;
     private final CouponService couponService;
     private final PlatformSettingsService platformSettingsService;
 
@@ -234,9 +235,9 @@ public class OrderService {
      * {@link #transitionStatus} choke point so the legal-transition rules in {@link OrderStatus}
      * are enforced in exactly one place regardless of who initiates the change.
      * <p>
-     * Scoped to {@code restaurantId} rather than an authenticated owner — same temporary
-     * authorization gap {@code MenuItemService} already has (see {@code OwnerMenuItemController}),
-     * to be closed once owner authentication exists.
+     * Authorized by {@code RestaurantOwnershipGuard.requireOwnedRestaurant(restaurantId)} at the
+     * top of the method — a caller who is not the restaurant's owner gets {@code 403} before any
+     * order is loaded, and an anonymous caller {@code 401} at the filter chain.
      * <p>
      * When a {@code NEW} order is asked to move straight to {@code PREPARING}, this advances it
      * through {@code CONFIRMED} first, in the same transaction: the owner dashboard has only one
@@ -246,6 +247,7 @@ public class OrderService {
      */
     @Transactional
     public OrderResponse updateOrderStatus(Long restaurantId, Long orderId, String rawStatus) {
+        ownershipGuard.requireOwnedRestaurant(restaurantId);
         Order order = orderRepository.findByIdAndRestaurantIdWithItems(orderId, restaurantId)
                 .orElseThrow(() -> new OrderNotFoundException("Order not found: " + orderId));
         OrderStatus target = resolveOwnerTargetStatus(rawStatus);
@@ -259,14 +261,14 @@ public class OrderService {
     }
 
     /**
-     * The owner dashboard's paginated, status-tabbed orders table. Scoped to {@code restaurantId}
-     * the same way {@link #updateOrderStatus} is (see its javadoc for the authorization gap this
-     * shares) — existence of the restaurant is validated so an unknown id fails with
-     * {@link RestaurantNotFoundException} rather than a silently-empty page.
+     * The owner dashboard's paginated, status-tabbed orders table. Authorized by
+     * {@code RestaurantOwnershipGuard.requireOwnedRestaurant} the same way {@link #updateOrderStatus}
+     * is; an unknown restaurant id fails with {@link RestaurantNotFoundException} rather than a
+     * silently-empty page.
      */
     @Transactional(readOnly = true)
     public OwnerOrderListResponse listOrdersForOwner(Long restaurantId, String rawStatus, int page, int size) {
-        restaurantService.requireRestaurant(restaurantId);
+        ownershipGuard.requireOwnedRestaurant(restaurantId);
         validatePagination(page, size);
         OrderStatus status = resolveOwnerListableStatus(rawStatus);
 
@@ -285,6 +287,7 @@ public class OrderService {
     /** The owner order-detail view, scoped to {@code restaurantId} the same way {@link #updateOrderStatus} is. */
     @Transactional(readOnly = true)
     public OwnerOrderResponse getOrderForOwner(Long restaurantId, Long orderId) {
+        ownershipGuard.requireOwnedRestaurant(restaurantId);
         Order order = orderRepository.findByIdAndRestaurantIdWithItems(orderId, restaurantId)
                 .orElseThrow(() -> new OrderNotFoundException("Order not found: " + orderId));
         return OrderMapper.toOwnerResponse(order);
@@ -297,7 +300,7 @@ public class OrderService {
      */
     @Transactional(readOnly = true)
     public OwnerDashboardResponse getDashboard(Long restaurantId) {
-        Restaurant restaurant = restaurantService.requireRestaurant(restaurantId);
+        Restaurant restaurant = ownershipGuard.requireOwnedRestaurant(restaurantId);
 
         OwnerOrderStatsResponse stats = OwnerOrderStatsResponse.builder()
                 .newCount(orderRepository.countByRestaurantIdAndStatus(restaurantId, OrderStatus.NEW))
