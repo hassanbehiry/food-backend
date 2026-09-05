@@ -1,6 +1,7 @@
 package com.food.foodapp.restaurant.mapper;
 
 import com.food.foodapp.category.dto.CategoryResponse;
+import com.food.foodapp.category.entity.Category;
 import com.food.foodapp.category.mapper.CategoryMapper;
 import com.food.foodapp.restaurant.dto.AdminRestaurantResponse;
 import com.food.foodapp.restaurant.dto.OwnerRestaurantResponse;
@@ -16,7 +17,15 @@ public final class RestaurantMapper {
     private RestaurantMapper() {
     }
 
+    /**
+     * Summary without category slugs — used where the caller has not loaded them (e.g. the
+     * favorites list). The discovery list uses {@link #toSummary(Restaurant, List)}.
+     */
     public static RestaurantSummaryResponse toSummary(Restaurant restaurant) {
+        return toSummary(restaurant, List.of());
+    }
+
+    public static RestaurantSummaryResponse toSummary(Restaurant restaurant, List<String> categoryIds) {
         return RestaurantSummaryResponse.builder()
                 .id(restaurant.getId())
                 .name(restaurant.getName())
@@ -30,6 +39,7 @@ public final class RestaurantMapper {
                 .estimatedDeliveryMinMinutes(restaurant.getEstimatedDeliveryMinMinutes())
                 .estimatedDeliveryMaxMinutes(restaurant.getEstimatedDeliveryMaxMinutes())
                 .estimatedDeliveryLabel(formatDeliveryLabel(restaurant))
+                .categoryIds(categoryIds)
                 .openForOrders(restaurant.isOpenForOrders())
                 .build();
     }
@@ -38,6 +48,11 @@ public final class RestaurantMapper {
         List<CategoryResponse> categories = restaurant.getCategories().stream()
                 .map(CategoryMapper::toResponse)
                 .sorted(Comparator.comparing(CategoryResponse::getName))
+                .toList();
+
+        List<String> categoryIds = restaurant.getCategories().stream()
+                .map(Category::getSlug)
+                .sorted()
                 .toList();
 
         return RestaurantDetailResponse.builder()
@@ -54,6 +69,7 @@ public final class RestaurantMapper {
                 .estimatedDeliveryMaxMinutes(restaurant.getEstimatedDeliveryMaxMinutes())
                 .estimatedDeliveryLabel(formatDeliveryLabel(restaurant))
                 .openForOrders(restaurant.isOpenForOrders())
+                .categoryIds(categoryIds)
                 .categories(categories)
                 .build();
     }

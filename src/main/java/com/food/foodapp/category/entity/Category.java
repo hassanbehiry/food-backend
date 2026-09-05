@@ -33,6 +33,13 @@ public class Category {
     @Column(nullable = false, unique = true, length = 100)
     private String name;
 
+    /**
+     * Stable, URL-safe identifier the frontend keys categories by (homepage chip URL param,
+     * dashboard restaurant filter). Distinct from the numeric {@link #id}. Added in V4.
+     */
+    @Column(nullable = false, unique = true, length = 100)
+    private String slug;
+
     @Column(nullable = false, length = 255)
     private String icon;
 

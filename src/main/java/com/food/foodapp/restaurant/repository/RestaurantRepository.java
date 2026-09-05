@@ -9,6 +9,7 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 
 @Repository
@@ -16,6 +17,16 @@ public interface RestaurantRepository extends JpaRepository<Restaurant, Long>, J
 
     @Query("SELECT r FROM Restaurant r LEFT JOIN FETCH r.categories WHERE r.id = :id")
     Optional<Restaurant> findByIdWithCategories(@Param("id") Long id);
+
+    /**
+     * Category slugs for a page of restaurants, as flat (restaurant id, slug) rows — one small
+     * query for the whole page, so the list response's {@code categoryIds} field never triggers
+     * an N+1 and the to-many join never multiplies the paged restaurant rows themselves.
+     * Restaurants with no category tag simply have no row here.
+     */
+    @Query("SELECT new com.food.foodapp.restaurant.repository.RestaurantCategorySlug(r.id, c.slug) "
+            + "FROM Restaurant r JOIN r.categories c WHERE r.id IN :restaurantIds")
+    List<RestaurantCategorySlug> findCategorySlugsByRestaurantIds(@Param("restaurantIds") List<Long> restaurantIds);
 
     /**
      * The admin analytics overview's "active restaurants" KPI: restaurants whose <b>current</b>

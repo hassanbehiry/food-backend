@@ -12,6 +12,7 @@ public final class CategoryMapper {
         return CategoryResponse.builder()
                 .id(category.getId())
                 .name(category.getName())
+                .slug(category.getSlug())
                 .icon(category.getIcon())
                 .build();
     }

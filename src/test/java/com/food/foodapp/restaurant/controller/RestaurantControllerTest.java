@@ -49,6 +49,7 @@ class RestaurantControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.restaurants[0].name").value("Test Restaurant"))
                 .andExpect(jsonPath("$.restaurants[0].isOpenForOrders").value(true))
+                .andExpect(jsonPath("$.restaurants[0].categoryIds[0]").value("pizza"))
                 .andExpect(jsonPath("$.totalElements").value(1));
     }
 
@@ -63,10 +64,20 @@ class RestaurantControllerTest {
     }
 
     @Test
-    void list_returns400_whenCategoryIsNotNumeric() throws Exception {
-        mockMvc.perform(get("/api/v1/restaurants").param("category", "abc"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.status").value(400));
+    void list_acceptsCategorySlug_andPassesItThrough() throws Exception {
+        RestaurantListResponse listResponse = RestaurantListResponse.builder()
+                .restaurants(List.of())
+                .page(0)
+                .size(20)
+                .totalElements(0)
+                .totalPages(0)
+                .build();
+        when(restaurantService.searchRestaurants(any(), eq("pizza"), any(), eq(0), eq(20)))
+                .thenReturn(listResponse);
+
+        mockMvc.perform(get("/api/v1/restaurants").param("category", "pizza"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(0));
     }
 
     @Test
@@ -83,6 +94,7 @@ class RestaurantControllerTest {
                 .estimatedDeliveryMaxMinutes(35)
                 .estimatedDeliveryLabel("25-35 دقيقة")
                 .openForOrders(true)
+                .categoryIds(List.of("pizza"))
                 .categories(List.of())
                 .build();
         when(restaurantService.getVisibleRestaurantById(1L)).thenReturn(detail);
@@ -90,7 +102,8 @@ class RestaurantControllerTest {
         mockMvc.perform(get("/api/v1/restaurants/1"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(1))
-                .andExpect(jsonPath("$.isOpenForOrders").value(true));
+                .andExpect(jsonPath("$.isOpenForOrders").value(true))
+                .andExpect(jsonPath("$.categoryIds[0]").value("pizza"));
     }
 
     @Test
@@ -121,6 +134,7 @@ class RestaurantControllerTest {
                 .estimatedDeliveryMinMinutes(25)
                 .estimatedDeliveryMaxMinutes(35)
                 .estimatedDeliveryLabel("25-35 دقيقة")
+                .categoryIds(List.of("pizza"))
                 .openForOrders(true)
                 .build();
     }

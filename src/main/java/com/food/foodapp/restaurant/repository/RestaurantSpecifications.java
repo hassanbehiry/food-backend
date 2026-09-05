@@ -15,12 +15,14 @@ public final class RestaurantSpecifications {
     private RestaurantSpecifications() {
     }
 
-    /** APPROVED by admin and currently accepting orders — the definition of "customer-visible". */
-    public static Specification<Restaurant> isCustomerVisible() {
-        return (root, query, cb) -> cb.and(
-                cb.equal(root.get("approvalStatus"), RestaurantApprovalStatus.APPROVED),
-                cb.isTrue(root.get("openForOrders"))
-        );
+    /**
+     * The customer discovery list shows every admin-{@code APPROVED} restaurant, whether or not
+     * it is currently accepting orders — a closed-but-approved restaurant is returned with
+     * {@code isOpenForOrders:false} so the UI can grey it out rather than being hidden entirely.
+     * Detail/menu visibility is a separate rule (see {@code RestaurantService.isCustomerVisible}).
+     */
+    public static Specification<Restaurant> approvedForCustomerListing() {
+        return (root, query, cb) -> cb.equal(root.get("approvalStatus"), RestaurantApprovalStatus.APPROVED);
     }
 
     public static Specification<Restaurant> nameOrCuisineContains(String text) {
@@ -31,15 +33,16 @@ public final class RestaurantSpecifications {
         );
     }
 
-    public static Specification<Restaurant> hasCategoryId(Long categoryId) {
+    /** Restaurants tagged with the category whose {@code slug} matches (homepage chip / dashboard filter). */
+    public static Specification<Restaurant> hasCategorySlug(String slug) {
         return (root, query, cb) -> {
             query.distinct(true);
             Join<Restaurant, Category> categories = root.join("categories");
-            return cb.equal(categories.get("id"), categoryId);
+            return cb.equal(categories.get("slug"), slug);
         };
     }
 
-    /** Admin restaurant-list filter — unlike {@link #isCustomerVisible()}, ignores {@code openForOrders}. */
+    /** Admin restaurant-list filter — unlike {@link #approvedForCustomerListing()}, matches any single status. */
     public static Specification<Restaurant> hasApprovalStatus(RestaurantApprovalStatus status) {
         return (root, query, cb) -> cb.equal(root.get("approvalStatus"), status);
     }

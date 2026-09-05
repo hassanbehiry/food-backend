@@ -15,6 +15,7 @@ import com.food.foodapp.restaurant.dto.RestaurantSummaryResponse;
 import com.food.foodapp.restaurant.entity.Restaurant;
 import com.food.foodapp.restaurant.entity.RestaurantApprovalStatus;
 import com.food.foodapp.restaurant.mapper.RestaurantMapper;
+import com.food.foodapp.restaurant.repository.RestaurantCategorySlug;
 import com.food.foodapp.restaurant.repository.RestaurantRepository;
 import com.food.foodapp.restaurant.repository.RestaurantSpecifications;
 import lombok.RequiredArgsConstructor;
@@ -28,12 +29,19 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalTime;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Restaurant discovery: list/search/filter/sort and detail lookup.
- * Customer-facing results are always restricted to admin-approved, currently-open
- * restaurants — see {@link #isCustomerVisible(Restaurant)}.
+ * The discovery <em>list</em> returns every admin-{@code APPROVED} restaurant, including ones
+ * not currently accepting orders (flagged {@code isOpenForOrders:false} so the UI can grey them
+ * out) — see {@link RestaurantSpecifications#approvedForCustomerListing()}. The <em>detail</em>
+ * lookup and customer sub-resources still require the restaurant to also be open —
+ * see {@link #isCustomerVisible(Restaurant)}.
  */
 @Slf4j
 @Service
@@ -45,23 +53,27 @@ public class RestaurantService {
     private final RestaurantRepository restaurantRepository;
 
     @Transactional(readOnly = true)
-    public RestaurantListResponse searchRestaurants(String q, Long categoryId, String sort, int page, int size) {
+    public RestaurantListResponse searchRestaurants(String q, String categorySlug, String sort, int page, int size) {
         validatePagination(page, size);
         RestaurantSortOption sortOption = resolveSortOption(sort);
 
-        Specification<Restaurant> specification = Specification.where(RestaurantSpecifications.isCustomerVisible());
+        Specification<Restaurant> specification =
+                Specification.where(RestaurantSpecifications.approvedForCustomerListing());
         if (q != null && !q.isBlank()) {
             specification = specification.and(RestaurantSpecifications.nameOrCuisineContains(q.trim()));
         }
-        if (categoryId != null) {
-            specification = specification.and(RestaurantSpecifications.hasCategoryId(categoryId));
+        if (categorySlug != null && !categorySlug.isBlank()) {
+            specification = specification.and(RestaurantSpecifications.hasCategorySlug(categorySlug.trim()));
         }
 
         Pageable pageable = PageRequest.of(page, size, resolveSort(sortOption));
         Page<Restaurant> result = restaurantRepository.findAll(specification, pageable);
 
+        Map<Long, List<String>> categorySlugsByRestaurant = loadCategorySlugs(result.getContent());
+
         List<RestaurantSummaryResponse> restaurants = result.getContent().stream()
-                .map(RestaurantMapper::toSummary)
+                .map(r -> RestaurantMapper.toSummary(r,
+                        categorySlugsByRestaurant.getOrDefault(r.getId(), List.of())))
                 .toList();
 
         return RestaurantListResponse.builder()
@@ -71,6 +83,25 @@ public class RestaurantService {
                 .totalElements(result.getTotalElements())
                 .totalPages(result.getTotalPages())
                 .build();
+    }
+
+    /**
+     * Category slugs for one page of restaurants, keyed by restaurant id, each list sorted for a
+     * stable response order. One extra query for the whole page (see
+     * {@link RestaurantRepository#findCategorySlugsByRestaurantIds}) — not an N+1, and not a fetch
+     * join that could multiply the paged rows.
+     */
+    private Map<Long, List<String>> loadCategorySlugs(List<Restaurant> restaurants) {
+        if (restaurants.isEmpty()) {
+            return Map.of();
+        }
+        List<Long> ids = restaurants.stream().map(Restaurant::getId).toList();
+        Map<Long, List<String>> byRestaurant = new HashMap<>();
+        for (RestaurantCategorySlug row : restaurantRepository.findCategorySlugsByRestaurantIds(ids)) {
+            byRestaurant.computeIfAbsent(row.restaurantId(), k -> new ArrayList<>()).add(row.slug());
+        }
+        byRestaurant.values().forEach(Collections::sort);
+        return byRestaurant;
     }
 
     @Transactional(readOnly = true)

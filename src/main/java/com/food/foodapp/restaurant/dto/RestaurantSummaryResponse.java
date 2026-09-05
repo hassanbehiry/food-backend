@@ -5,6 +5,7 @@ import lombok.Builder;
 import lombok.Getter;
 
 import java.math.BigDecimal;
+import java.util.List;
 
 @Getter
 @Builder
@@ -22,6 +23,9 @@ public class RestaurantSummaryResponse {
     private int estimatedDeliveryMinMinutes;
     private int estimatedDeliveryMaxMinutes;
     private String estimatedDeliveryLabel;
+
+    /** Slugs of the platform categories this restaurant is tagged with (frontend filter key). */
+    private List<String> categoryIds;
 
     @JsonProperty("isOpenForOrders")
     private boolean openForOrders;
