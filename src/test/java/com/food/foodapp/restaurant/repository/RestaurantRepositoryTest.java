@@ -34,33 +34,42 @@ class RestaurantRepositoryTest {
     private RestaurantRepository restaurantRepository;
 
     @Test
-    void findAll_withSpecification_appliesVisibilityAndCategoryFilter() {
-        Category pizza = category("بيتزا-" + System.nanoTime());
-        Category sushi = category("سوشي-" + System.nanoTime());
+    void findAll_withSpecification_appliesApprovalAndCategorySlugFilter_keepingClosedButApproved() {
+        String pizzaSlug = "pizza-" + System.nanoTime();
+        String sushiSlug = "sushi-" + System.nanoTime();
+        Category pizza = category("بيتزا-" + System.nanoTime(), pizzaSlug);
+        Category sushi = category("سوشي-" + System.nanoTime(), sushiSlug);
         entityManager.persist(pizza);
         entityManager.persist(sushi);
 
-        Restaurant visiblePizzaPlace = restaurant("Pizza Place", RestaurantApprovalStatus.APPROVED, true, Set.of(pizza));
+        Restaurant openPizzaPlace = restaurant("Pizza Place", RestaurantApprovalStatus.APPROVED, true, Set.of(pizza));
         Restaurant closedPizzaPlace = restaurant("Closed Pizza", RestaurantApprovalStatus.APPROVED, false, Set.of(pizza));
-        Restaurant pendingSushiPlace = restaurant("Pending Sushi", RestaurantApprovalStatus.PENDING, true, Set.of(sushi));
-        Restaurant visibleSushiPlace = restaurant("Sushi Place", RestaurantApprovalStatus.APPROVED, true, Set.of(sushi));
+        Restaurant pendingPizzaPlace = restaurant("Pending Pizza", RestaurantApprovalStatus.PENDING, true, Set.of(pizza));
+        Restaurant approvedSushiPlace = restaurant("Sushi Place", RestaurantApprovalStatus.APPROVED, true, Set.of(sushi));
 
-        entityManager.persist(visiblePizzaPlace);
+        entityManager.persist(openPizzaPlace);
         entityManager.persist(closedPizzaPlace);
-        entityManager.persist(pendingSushiPlace);
-        entityManager.persist(visibleSushiPlace);
+        entityManager.persist(pendingPizzaPlace);
+        entityManager.persist(approvedSushiPlace);
         entityManager.flush();
         entityManager.clear();
 
         Specification<Restaurant> spec = Specification
-                .where(RestaurantSpecifications.isCustomerVisible())
-                .and(RestaurantSpecifications.hasCategoryId(pizza.getId()));
+                .where(RestaurantSpecifications.approvedForCustomerListing())
+                .and(RestaurantSpecifications.hasCategorySlug(pizzaSlug));
 
         List<Restaurant> results = restaurantRepository
                 .findAll(spec, PageRequest.of(0, 10, Sort.by("id")))
                 .getContent();
 
-        assertThat(results).extracting(Restaurant::getName).containsExactly("Pizza Place");
+        // APPROVED + tagged 'pizza' — the closed-but-approved one is now kept (flagged, not hidden);
+        // the PENDING one and the wrong-category one are excluded.
+        assertThat(results).extracting(Restaurant::getName)
+                .containsExactlyInAnyOrder("Pizza Place", "Closed Pizza");
+
+        List<RestaurantCategorySlug> slugRows = restaurantRepository.findCategorySlugsByRestaurantIds(
+                results.stream().map(Restaurant::getId).toList());
+        assertThat(slugRows).extracting(RestaurantCategorySlug::slug).containsOnly(pizzaSlug);
     }
 
     @Test
@@ -85,7 +94,7 @@ class RestaurantRepositoryTest {
 
     @Test
     void findByIdWithCategories_loadsCategoriesWithoutLazyInitializationException() {
-        Category pizza = category("بيتزا-" + System.nanoTime());
+        Category pizza = category("بيتزا-" + System.nanoTime(), "pizza-" + System.nanoTime());
         entityManager.persist(pizza);
         Restaurant restaurant = restaurant("Pizza Place", RestaurantApprovalStatus.APPROVED, true, Set.of(pizza));
         entityManager.persist(restaurant);
@@ -127,9 +136,10 @@ class RestaurantRepositoryTest {
                 .executeUpdate();
     }
 
-    private Category category(String name) {
+    private Category category(String name, String slug) {
         Category category = new Category();
         category.setName(name);
+        category.setSlug(slug);
         category.setIcon("icon");
         return category;
     }

@@ -28,13 +28,15 @@ class CategoryControllerTest {
 
     @Test
     void list_returnsCategoriesFromService() throws Exception {
-        CategoryResponse pizza = CategoryResponse.builder().id(1L).name("بيتزا").icon("pizza").build();
+        CategoryResponse pizza = CategoryResponse.builder()
+                .id(1L).name("بيتزا").slug("pizza").icon("fa-pizza-slice").build();
         when(categoryService.listCategories()).thenReturn(List.of(pizza));
 
         mockMvc.perform(get("/api/v1/categories"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].id").value(1))
                 .andExpect(jsonPath("$[0].name").value("بيتزا"))
-                .andExpect(jsonPath("$[0].icon").value("pizza"));
+                .andExpect(jsonPath("$[0].slug").value("pizza"))
+                .andExpect(jsonPath("$[0].icon").value("fa-pizza-slice"));
     }
 }

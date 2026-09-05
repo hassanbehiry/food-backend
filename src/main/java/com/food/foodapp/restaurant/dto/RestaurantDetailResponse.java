@@ -28,5 +28,8 @@ public class RestaurantDetailResponse {
     @JsonProperty("isOpenForOrders")
     private boolean openForOrders;
 
+    /** Slugs of the platform categories this restaurant is tagged with (frontend filter key). */
+    private List<String> categoryIds;
+
     private List<CategoryResponse> categories;
 }

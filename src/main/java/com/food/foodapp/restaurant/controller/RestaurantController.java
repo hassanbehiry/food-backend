@@ -24,13 +24,14 @@ public class RestaurantController {
 
     /**
      * GET /api/v1/restaurants
-     * Supports {@code q} (name/cuisine search), {@code category} (category id filter),
-     * {@code sort} (rating | delivery_time | delivery_fee) and pagination.
+     * Supports {@code q} (name/cuisine search), {@code category} (category <em>slug</em> filter,
+     * e.g. {@code ?category=pizza}), {@code sort} (rating | delivery_time | delivery_fee) and
+     * pagination.
      */
     @GetMapping
     public ResponseEntity<RestaurantListResponse> list(
             @RequestParam(required = false) String q,
-            @RequestParam(required = false) Long category,
+            @RequestParam(required = false) String category,
             @RequestParam(required = false) String sort,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
