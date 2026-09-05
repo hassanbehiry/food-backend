@@ -397,9 +397,10 @@ public class OrderService {
     /**
      * Shared by {@link #previewCheckout} and {@link #placeOrder}: re-validates restaurant
      * availability, re-validates every item is still orderable, re-reads authoritative prices
-     * from the already-freshly-loaded {@code cart}, validates the address belongs to the caller,
-     * and validates the payment method — then recomputes subtotal/delivery/discount/total from
-     * that, never from anything the caller sent.
+     * from the already-freshly-loaded {@code cart}, resolves the delivery address (a saved address
+     * that must belong to the caller, or a transient inline one — see
+     * {@link #resolveDeliveryAddress}), and validates the payment method — then recomputes
+     * subtotal/delivery/discount/total from that, never from anything the caller sent.
      * <p>
      * Also the single choke point for {@link PlatformSettingsService#isMaintenanceModeEnabled()}
      * and for the customer's {@link UserStatus}: both {@link #previewCheckout} and
@@ -424,8 +425,7 @@ public class OrderService {
             }
         }
 
-        Address address = addressRepository.findByIdAndCustomerId(request.getAddressId(), customerId)
-                .orElseThrow(() -> new AddressNotFoundException("Address not found: " + request.getAddressId()));
+        Address address = resolveDeliveryAddress(request, customerId);
         PaymentMethod paymentMethod = resolvePaymentMethod(request.getPaymentMethod());
 
         BigDecimal subtotal = cart.getItems().stream()
@@ -485,12 +485,64 @@ public class OrderService {
         return "ORD-" + datePart + "-" + randomPart;
     }
 
+    /**
+     * Accepts {@code "CASH_ON_DELIVERY"}, {@code "COD"} and the frontend's {@code "cash"}
+     * (all case-insensitive) as aliases for the one supported method. The persisted enum value is
+     * always {@link PaymentMethod#CASH_ON_DELIVERY}.
+     */
     private PaymentMethod resolvePaymentMethod(String raw) {
-        if (raw != null && (raw.equalsIgnoreCase("CASH_ON_DELIVERY") || raw.equalsIgnoreCase("COD"))) {
+        if (raw != null && (raw.equalsIgnoreCase("CASH_ON_DELIVERY")
+                || raw.equalsIgnoreCase("COD")
+                || raw.equalsIgnoreCase("CASH"))) {
             return PaymentMethod.CASH_ON_DELIVERY;
         }
         throw new InvalidRequestParameterException(
                 "Invalid 'paymentMethod' value: '" + raw + "'. Only cash on delivery is currently supported.");
+    }
+
+    /**
+     * Resolves the checkout's delivery destination to an {@link Address} the rest of the flow can
+     * read uniformly:
+     * <ul>
+     *   <li>{@code addressId} present -> the caller's saved address, 404 if it isn't one they own;</li>
+     *   <li>otherwise -> a transient, <b>never-persisted</b> {@link Address} populated from the
+     *       request's inline {@code street/city/postalCode/notes/label}. It is only a data carrier
+     *       for {@link #buildOrder}, which snapshots it onto the order's flat {@code delivery_*}
+     *       columns; no {@code addresses} row is ever created.</li>
+     * </ul>
+     * The "exactly one of the two" rule is enforced at the request boundary
+     * ({@link CheckoutRequest#isExactlyOneDeliveryTargetPresent()}); the inline-completeness check
+     * here is a defensive backstop for direct service callers.
+     */
+    private Address resolveDeliveryAddress(CheckoutRequest request, Long customerId) {
+        if (request.getAddressId() != null) {
+            return addressRepository.findByIdAndCustomerId(request.getAddressId(), customerId)
+                    .orElseThrow(() -> new AddressNotFoundException(
+                            "Address not found: " + request.getAddressId()));
+        }
+        if (isBlank(request.getStreet()) || isBlank(request.getCity())) {
+            throw new InvalidRequestParameterException(
+                    "Provide either a saved addressId or an inline address with at least street and city");
+        }
+        Address inline = new Address();
+        inline.setLabel(trimToNull(request.getLabel()));
+        inline.setStreet(request.getStreet().trim());
+        inline.setCity(request.getCity().trim());
+        inline.setPostalCode(trimToNull(request.getPostalCode()));
+        inline.setNotes(trimToNull(request.getNotes()));
+        return inline;
+    }
+
+    private static boolean isBlank(String value) {
+        return value == null || value.isBlank();
+    }
+
+    private static String trimToNull(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
     }
 
     private Cart requireNonEmptyCart(Cart cart) {

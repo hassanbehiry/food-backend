@@ -66,6 +66,25 @@ class CartControllerTest {
     }
 
     @Test
+    void sync_bindsFrontendIdField_asMenuItemIdAlias() throws Exception {
+        org.mockito.ArgumentCaptor<com.food.foodapp.cart.dto.CartSyncRequest> captor =
+                org.mockito.ArgumentCaptor.forClass(com.food.foodapp.cart.dto.CartSyncRequest.class);
+        when(cartService.syncCart(captor.capture())).thenReturn(cartWithOneItem());
+
+        mockMvc.perform(post("/api/v1/cart/sync")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"items\":[{\"id\":10,\"qty\":2}]}"))
+                .andExpect(status().isOk());
+
+        org.assertj.core.api.Assertions.assertThat(captor.getValue().getItems())
+                .singleElement()
+                .satisfies(item -> {
+                    org.assertj.core.api.Assertions.assertThat(item.getMenuItemId()).isEqualTo(10L);
+                    org.assertj.core.api.Assertions.assertThat(item.getQty()).isEqualTo(2);
+                });
+    }
+
+    @Test
     void sync_returns400_whenItemsMissing() throws Exception {
         mockMvc.perform(post("/api/v1/cart/sync")
                         .contentType(MediaType.APPLICATION_JSON)
