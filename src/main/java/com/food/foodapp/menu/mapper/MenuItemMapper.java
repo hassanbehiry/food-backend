@@ -30,6 +30,7 @@ public final class MenuItemMapper {
         return OwnerMenuItemResponse.builder()
                 .id(item.getId())
                 .categoryId(item.getCategory().getId())
+                .tab(item.getCategory().getName())
                 .name(item.getName())
                 .desc(item.getDescription())
                 .price(item.getPrice())

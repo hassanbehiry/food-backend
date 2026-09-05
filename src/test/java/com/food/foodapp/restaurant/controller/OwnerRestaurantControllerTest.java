@@ -77,12 +77,23 @@ class OwnerRestaurantControllerTest {
     }
 
     @Test
-    void updateSettings_returns400_whenNameMissing() throws Exception {
+    void updateSettings_acceptsAPartialBody_withoutNameOrTimes() throws Exception {
+        when(restaurantService.updateSettings(eq(1L), any())).thenReturn(response());
+
         mockMvc.perform(put("/api/v1/owner/restaurants/1/settings")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"cuisine\":\"إيطالي\",\"deliveryFee\":15,\"minimumOrder\":50,"
-                                + "\"openTime\":\"09:00:00\",\"closeTime\":\"23:00:00\"}"))
-                .andExpect(status().isBadRequest());
+                        .content("{\"deliveryFee\":18}"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void updateSettings_acceptsRestNameAndMinOrderAliases() throws Exception {
+        when(restaurantService.updateSettings(eq(1L), any())).thenReturn(response());
+
+        mockMvc.perform(put("/api/v1/owner/restaurants/1/settings")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"restName\":\"New Name\",\"minOrder\":40,\"isOpenForOrders\":false}"))
+                .andExpect(status().isOk());
     }
 
     @Test

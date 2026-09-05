@@ -9,6 +9,7 @@ import com.food.foodapp.auth.repository.UserRepository;
 import com.food.foodapp.auth.security.UserContext;
 import com.food.foodapp.common.exception.AddressNotFoundException;
 import com.food.foodapp.common.exception.UnauthenticatedException;
+import com.food.foodapp.common.response.DeletionResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -93,8 +94,14 @@ public class AddressService {
         return AddressMapper.toResponse(saved);
     }
 
+    /**
+     * @return {@code deleted:true} plus {@code promotedDefaultId} — the id of the address that was
+     *         promoted to default because the deleted one had been the default, or {@code null} if
+     *         nothing was promoted. The frontend service layer reads the response body, so this is
+     *         a 200 with a body rather than a bare 204.
+     */
     @Transactional
-    public void deleteAddress(Long addressId) {
+    public DeletionResponse deleteAddress(Long addressId) {
         Long customerId = lockCustomer();
         Address address = requireOwnedAddress(addressId, customerId);
         boolean wasDefault = address.isDefault();
@@ -104,13 +111,17 @@ public class AddressService {
         // Deleting the default address promotes the customer's oldest remaining address to
         // default, so checkout keeps a preselectable address whenever one is available — there
         // is no prior convention in this codebase for this case, so this is the assumption made.
+        Long promotedDefaultId = null;
         if (wasDefault) {
             Optional<Address> promoted = addressRepository.findFirstByCustomerIdOrderByCreatedAtAsc(customerId);
-            promoted.ifPresent(next -> {
+            if (promoted.isPresent()) {
+                Address next = promoted.get();
                 next.setDefault(true);
                 addressRepository.save(next);
-            });
+                promotedDefaultId = next.getId();
+            }
         }
+        return DeletionResponse.ok(promotedDefaultId);
     }
 
     private Address requireOwnedAddress(Long addressId, Long customerId) {

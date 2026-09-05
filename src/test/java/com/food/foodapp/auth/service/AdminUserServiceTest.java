@@ -6,13 +6,13 @@ import com.food.foodapp.auth.entity.Role;
 import com.food.foodapp.auth.entity.User;
 import com.food.foodapp.auth.entity.UserStatus;
 import com.food.foodapp.auth.repository.UserRepository;
+import com.food.foodapp.auth.security.UserContext;
+import com.food.foodapp.common.exception.AdminActionForbiddenException;
 import com.food.foodapp.common.exception.InvalidRequestParameterException;
-import com.food.foodapp.common.exception.InvalidUserStatusTransitionException;
 import com.food.foodapp.common.exception.UserNotFoundException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.PageImpl;
@@ -25,7 +25,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -33,19 +33,25 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class AdminUserServiceTest {
 
+    private static final long ACTING_ADMIN_ID = 999L;
+
     @Mock
     private UserRepository userRepository;
+
+    @Mock
+    private UserContext userContext;
 
     private AdminUserService adminUserService;
 
     @BeforeEach
     void setUp() {
-        adminUserService = new AdminUserService(userRepository);
+        adminUserService = new AdminUserService(userRepository, userContext);
+        lenient().when(userContext.getCurrentUserId()).thenReturn(ACTING_ADMIN_ID);
     }
 
     @Test
-    void listUsers_listsEveryUser_whenNoFilterGiven() {
-        when(userRepository.findAll((Specification<User>) isNull(), any(Pageable.class)))
+    void listUsers_listsEveryNonAdminUser_whenNoFilterGiven() {
+        when(userRepository.findAll(any(Specification.class), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(user(1L, Role.CUSTOMER, UserStatus.ACTIVE)), Pageable.ofSize(20), 1));
 
         AdminUserListResponse response = adminUserService.listUsers(null, null, 0, 20);
@@ -56,15 +62,13 @@ class AdminUserServiceTest {
 
     @Test
     void listUsers_appliesRoleFilter() {
-        ArgumentCaptor<Specification<User>> captor = ArgumentCaptor.forClass(Specification.class);
-        when(userRepository.findAll(captor.capture(), any(Pageable.class)))
+        when(userRepository.findAll(any(Specification.class), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(user(1L, Role.OWNER, UserStatus.ACTIVE)), Pageable.ofSize(20), 1));
 
         AdminUserListResponse response = adminUserService.listUsers("owner", null, 0, 20);
 
         assertThat(response.getUsers()).hasSize(1);
         assertThat(response.getUsers().get(0).getRole()).isEqualTo(Role.OWNER);
-        assertThat(captor.getValue()).isNotNull();
     }
 
     @Test
@@ -138,12 +142,32 @@ class AdminUserServiceTest {
     }
 
     @Test
-    void updateStatus_rejectsReSuspendingAnAlreadySuspendedUser() {
+    void updateStatus_isANoOp_whenTheUserIsAlreadyInTheTargetStatus() {
         User user = user(1L, Role.CUSTOMER, UserStatus.SUSPENDED);
         when(userRepository.findById(1L)).thenReturn(Optional.of(user));
 
-        assertThatThrownBy(() -> adminUserService.updateStatus(1L, "SUSPENDED"))
-                .isInstanceOf(InvalidUserStatusTransitionException.class);
+        AdminUserResponse response = adminUserService.updateStatus(1L, "SUSPENDED");
+
+        assertThat(response.getStatus()).isEqualTo(UserStatus.SUSPENDED);
+        verify(userRepository, never()).save(any());
+    }
+
+    @Test
+    void updateStatus_forbidsChangingTheActingAdminsOwnStatus() {
+        when(userRepository.findById(ACTING_ADMIN_ID))
+                .thenReturn(Optional.of(user(ACTING_ADMIN_ID, Role.ADMIN, UserStatus.ACTIVE)));
+
+        assertThatThrownBy(() -> adminUserService.updateStatus(ACTING_ADMIN_ID, "SUSPENDED"))
+                .isInstanceOf(AdminActionForbiddenException.class);
+        verify(userRepository, never()).save(any());
+    }
+
+    @Test
+    void updateStatus_forbidsChangingAnotherAdminsStatus() {
+        when(userRepository.findById(2L)).thenReturn(Optional.of(user(2L, Role.ADMIN, UserStatus.ACTIVE)));
+
+        assertThatThrownBy(() -> adminUserService.updateStatus(2L, "SUSPENDED"))
+                .isInstanceOf(AdminActionForbiddenException.class);
         verify(userRepository, never()).save(any());
     }
 

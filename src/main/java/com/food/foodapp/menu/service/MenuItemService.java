@@ -81,7 +81,7 @@ public class MenuItemService {
     @Transactional
     public OwnerMenuItemResponse createItem(Long restaurantId, MenuItemCreateRequest request) {
         Restaurant restaurant = ownershipGuard.requireOwnedRestaurant(restaurantId);
-        MenuCategory category = requireOwnedCategory(restaurantId, request.getCategoryId());
+        MenuCategory category = resolveCategory(restaurant, request.getCategoryId(), request.getCategoryName());
 
         MenuItem item = new MenuItem();
         item.setRestaurant(restaurant);
@@ -95,22 +95,62 @@ public class MenuItemService {
         return MenuItemMapper.toOwnerResponse(menuItemRepository.save(item));
     }
 
+    /**
+     * Partial update: only the fields present in {@code request} are applied. A missing {@code img}
+     * leaves the current image untouched (an explicit {@code ""} clears it); a missing category
+     * reference keeps the current category.
+     */
     @Transactional
     public OwnerMenuItemResponse updateItem(Long restaurantId, Long itemId, MenuItemUpdateRequest request) {
-        ownershipGuard.requireOwnedRestaurant(restaurantId);
+        Restaurant restaurant = ownershipGuard.requireOwnedRestaurant(restaurantId);
         MenuItem item = requireOwnedItem(restaurantId, itemId);
-        MenuCategory category = requireOwnedCategory(restaurantId, request.getCategoryId());
 
-        if (!item.getCategory().getId().equals(category.getId())) {
-            item.setDisplayOrder(menuItemRepository.findMaxDisplayOrderInCategory(category.getId()) + 1);
+        if (request.getCategoryId() != null || hasText(request.getCategoryName())) {
+            MenuCategory category = resolveCategory(restaurant, request.getCategoryId(), request.getCategoryName());
+            if (!item.getCategory().getId().equals(category.getId())) {
+                item.setDisplayOrder(menuItemRepository.findMaxDisplayOrderInCategory(category.getId()) + 1);
+                item.setCategory(category);
+            }
         }
-        item.setCategory(category);
-        item.setName(request.getName().trim());
-        item.setDescription(request.getDesc());
-        item.setPrice(request.getPrice());
-        item.setImageUrl(request.getImg());
+        if (hasText(request.getName())) {
+            item.setName(request.getName().trim());
+        }
+        if (request.getDesc() != null) {
+            item.setDescription(request.getDesc().isBlank() ? null : request.getDesc());
+        }
+        if (request.getPrice() != null) {
+            item.setPrice(request.getPrice());
+        }
+        if (request.getImg() != null) {
+            item.setImageUrl(request.getImg().isBlank() ? null : request.getImg());
+        }
 
         return MenuItemMapper.toOwnerResponse(menuItemRepository.save(item));
+    }
+
+    /**
+     * Resolves the target menu category strictly within {@code restaurant}. Given a {@code categoryId}
+     * it must be an existing category of this restaurant; given a {@code categoryName} it is matched
+     * case-insensitively against this restaurant's categories and created (as a new tab) if none
+     * matches. A category from another restaurant can never be selected.
+     */
+    private MenuCategory resolveCategory(Restaurant restaurant, Long categoryId, String categoryName) {
+        if (categoryId != null) {
+            return requireOwnedCategory(restaurant.getId(), categoryId);
+        }
+        String name = categoryName.trim();
+        return menuCategoryRepository.findByRestaurantIdAndNameIgnoreCase(restaurant.getId(), name)
+                .orElseGet(() -> {
+                    MenuCategory created = new MenuCategory();
+                    created.setRestaurant(restaurant);
+                    created.setName(name);
+                    created.setDisplayOrder(menuCategoryRepository.findMaxDisplayOrder(restaurant.getId()) + 1);
+                    return menuCategoryRepository.save(created);
+                });
+    }
+
+    private static boolean hasText(String s) {
+        return s != null && !s.isBlank();
     }
 
     @Transactional
