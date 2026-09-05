@@ -13,8 +13,7 @@ import com.food.foodapp.restaurant.entity.Restaurant;
 import com.food.foodapp.restaurant.entity.RestaurantApprovalStatus;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
-import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
+import com.food.foodapp.support.RepositoryTest;
 import org.springframework.boot.jpa.test.autoconfigure.TestEntityManager;
 import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.data.domain.Page;
@@ -35,8 +34,7 @@ import static org.assertj.core.api.Assertions.tuple;
  * relationships" acceptance criteria, which a mapper/service unit test can't exercise because
  * they only bite at flush time against the real schema.
  */
-@DataJpaTest
-@AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
+@RepositoryTest
 class OrderRepositoryTest {
 
     /** A wide-open bound pair standing in for "no date filter" — {@code findByCustomerIdWithFilters} never accepts {@code null} here (see its javadoc). */
