@@ -2,8 +2,10 @@ package com.food.foodapp.auth.controller;
 
 import com.food.foodapp.auth.dto.AuthResponse;
 import com.food.foodapp.auth.dto.LoginRequest;
+import com.food.foodapp.auth.dto.ProfileResponse;
 import com.food.foodapp.auth.dto.RegisterRequest;
 import com.food.foodapp.auth.service.AuthService;
+import com.food.foodapp.auth.service.ProfileService;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -12,6 +14,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -29,6 +32,7 @@ import java.time.Duration;
 public class AuthController {
 
     private final AuthService authService;
+    private final ProfileService profileService;
 
     @Value("${jwt.expiration}")
     private long jwtExpiration;
@@ -69,6 +73,16 @@ public class AuthController {
         servletResponse.addHeader(HttpHeaders.SET_COOKIE, cookie.toString());
 
         return ResponseEntity.ok(result.response());
+    }
+
+    /**
+     * GET /api/v1/auth/me
+     * Returns the currently authenticated user's profile (for session restore on page load).
+     * Responds 401 via the shared exception handler when the request carries no valid token.
+     */
+    @GetMapping("/me")
+    public ResponseEntity<ProfileResponse> currentUser() {
+        return ResponseEntity.ok(profileService.getCurrentProfile());
     }
 
     /**

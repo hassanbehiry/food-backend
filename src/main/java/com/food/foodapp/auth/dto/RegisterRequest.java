@@ -25,4 +25,12 @@ public class RegisterRequest {
 
     @NotNull(message = "Role is required")
     private Role role;
+
+    /**
+     * Optional. The frontend RegisterPage collects a phone number; it is persisted when present.
+     * Not {@code @NotBlank} — existing API clients and tests that register without a phone must
+     * keep working, and there is no meaningful value to backfill for accounts created before this.
+     */
+    @Size(max = 30, message = "Phone must be at most 30 characters")
+    private String phone;
 }

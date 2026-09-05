@@ -44,6 +44,14 @@ public class User {
     @Column(nullable = false, length = 20, columnDefinition = "varchar(20) default 'ACTIVE'")
     private UserStatus status = UserStatus.ACTIVE;
 
+    /** Optional contact phone, collected at registration and editable on the profile page. */
+    @Column(length = 30)
+    private String phone;
+
+    /** Optional avatar image URL (the UI currently renders initials; reserved for later use). */
+    @Column(name = "avatar_url", length = 512)
+    private String avatarUrl;
+
     @CreationTimestamp
     @Column(updatable = false)
     private LocalDateTime createdAt;
