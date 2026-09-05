@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -18,10 +19,11 @@ class FavoriteMapperTest {
         Restaurant restaurant = restaurant(RestaurantApprovalStatus.APPROVED, true);
         Favorite favorite = favorite(restaurant);
 
-        FavoriteResponse response = FavoriteMapper.toResponse(favorite);
+        FavoriteResponse response = FavoriteMapper.toResponse(favorite, List.of("italian", "pizza"));
 
         assertThat(response.isAvailable()).isTrue();
         assertThat(response.getRestaurant().getId()).isEqualTo(restaurant.getId());
+        assertThat(response.getRestaurant().getCategoryIds()).containsExactly("italian", "pizza");
         assertThat(response.getFavoritedAt()).isEqualTo(favorite.getCreatedAt());
     }
 
@@ -29,7 +31,7 @@ class FavoriteMapperTest {
     void toResponse_marksUnavailable_forSuspendedRestaurant() {
         Restaurant restaurant = restaurant(RestaurantApprovalStatus.SUSPENDED, true);
 
-        FavoriteResponse response = FavoriteMapper.toResponse(favorite(restaurant));
+        FavoriteResponse response = FavoriteMapper.toResponse(favorite(restaurant), List.of());
 
         assertThat(response.isAvailable()).isFalse();
     }
@@ -38,7 +40,7 @@ class FavoriteMapperTest {
     void toResponse_marksUnavailable_forApprovedButClosedRestaurant() {
         Restaurant restaurant = restaurant(RestaurantApprovalStatus.APPROVED, false);
 
-        FavoriteResponse response = FavoriteMapper.toResponse(favorite(restaurant));
+        FavoriteResponse response = FavoriteMapper.toResponse(favorite(restaurant), List.of());
 
         assertThat(response.isAvailable()).isFalse();
     }

@@ -120,6 +120,25 @@ class AddressServiceTest {
     }
 
     @Test
+    void updateAddress_keepsExistingDefault_whenIsDefaultOmitted() {
+        stubLock();
+        Address address = existingAddress(100L, true);
+        when(addressRepository.findByIdAndCustomerId(100L, 1L)).thenReturn(Optional.of(address));
+        when(addressRepository.save(any(Address.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        AddressRequest req = new AddressRequest();
+        req.setLabel("Renamed");
+        req.setStreet("New Street");
+        req.setCity("Cairo");
+        // isDefault left null — editing only the street must not clear the default (GAP-013)
+
+        AddressResponse response = addressService.updateAddress(100L, req);
+
+        assertThat(response.getStreet()).isEqualTo("New Street");
+        assertThat(response.isDefault()).isTrue();
+    }
+
+    @Test
     void updateAddress_leavesOtherDefaultsAlone_whenNotRequestedAsDefault() {
         stubLock();
         Address address = existingAddress(100L, true);
@@ -209,7 +228,7 @@ class AddressServiceTest {
         request.setLabel(label);
         request.setStreet(street);
         request.setCity(city);
-        request.setDefault(isDefault);
+        request.setIsDefault(isDefault);
         return request;
     }
 

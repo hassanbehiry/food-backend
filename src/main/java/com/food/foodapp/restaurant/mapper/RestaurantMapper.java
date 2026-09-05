@@ -19,12 +19,9 @@ public final class RestaurantMapper {
 
     /**
      * Summary without category slugs — used where the caller has not loaded them (e.g. the
-     * favorites list). The discovery list uses {@link #toSummary(Restaurant, List)}.
+     * favorites list). Callers pass the restaurant's category slugs, loaded in one batch query
+     * for the whole page (see {@code RestaurantService.categorySlugsByRestaurantIds}).
      */
-    public static RestaurantSummaryResponse toSummary(Restaurant restaurant) {
-        return toSummary(restaurant, List.of());
-    }
-
     public static RestaurantSummaryResponse toSummary(Restaurant restaurant, List<String> categoryIds) {
         return RestaurantSummaryResponse.builder()
                 .id(restaurant.getId())

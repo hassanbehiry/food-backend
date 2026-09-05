@@ -52,7 +52,7 @@ public class MenuItemService {
 
     @Transactional(readOnly = true)
     public List<MenuItemResponse> listVisibleItems(Long restaurantId, Long categoryId) {
-        restaurantService.requireVisibleRestaurant(restaurantId);
+        restaurantService.requireApprovedRestaurant(restaurantId);
 
         if (categoryId == null) {
             return menuItemRepository.findVisibleByRestaurantId(restaurantId).stream()

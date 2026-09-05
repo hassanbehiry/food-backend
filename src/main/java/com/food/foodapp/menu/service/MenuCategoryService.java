@@ -40,7 +40,7 @@ public class MenuCategoryService {
 
     @Transactional(readOnly = true)
     public List<MenuCategoryResponse> listVisibleCategories(Long restaurantId) {
-        restaurantService.requireVisibleRestaurant(restaurantId);
+        restaurantService.requireApprovedRestaurant(restaurantId);
         return menuCategoryRepository.findByRestaurantIdAndActiveTrueOrderByDisplayOrderAscIdAsc(restaurantId).stream()
                 .map(MenuCategoryMapper::toResponse)
                 .toList();
