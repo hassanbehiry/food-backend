@@ -3,6 +3,8 @@ package com.food.foodapp.common.exception;
 import com.food.foodapp.common.response.ErrorResponse;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -243,6 +245,41 @@ public class GlobalExceptionHandler {
                 .errors(fieldErrors)
                 .build();
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errorResponse);
+    }
+
+    /**
+     * Covers a request body Jackson cannot deserialize: malformed/truncated JSON, a bad date or
+     * number literal, or an enum value that is still invalid after the
+     * {@code accept-case-insensitive-enums} relaxation (e.g. {@code role: "banana"}) — a genuinely
+     * unknown enum literal must still 400 here, not silently bind to something. Without this
+     * handler, {@link HttpMessageNotReadableException} fell through to the generic 500 handler
+     * below. The underlying Jackson message is not echoed back — it can be verbose/technical — the
+     * client gets a stable, generic 400 instead.
+     */
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<ErrorResponse> handleMessageNotReadable(HttpMessageNotReadableException ex) {
+        ErrorResponse error = ErrorResponse.builder()
+                .status(HttpStatus.BAD_REQUEST.value())
+                .message("Malformed request body")
+                .build();
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(error);
+    }
+
+    /**
+     * A request whose {@code Content-Type} the target handler cannot consume (e.g. posting
+     * {@code text/plain} to a JSON endpoint). Previously fell through to the generic 500 handler
+     * below; now returns a controlled 415 instead.
+     */
+    @ExceptionHandler(HttpMediaTypeNotSupportedException.class)
+    public ResponseEntity<ErrorResponse> handleUnsupportedMediaType(HttpMediaTypeNotSupportedException ex) {
+        String message = ex.getContentType() != null
+                ? "Unsupported content type: " + ex.getContentType()
+                : "Unsupported or missing content type";
+        ErrorResponse error = ErrorResponse.builder()
+                .status(HttpStatus.UNSUPPORTED_MEDIA_TYPE.value())
+                .message(message)
+                .build();
+        return ResponseEntity.status(HttpStatus.UNSUPPORTED_MEDIA_TYPE).body(error);
     }
 
     @ExceptionHandler(Exception.class)

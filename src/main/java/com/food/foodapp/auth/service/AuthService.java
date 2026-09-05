@@ -117,9 +117,14 @@ public class AuthService {
                 .role(user.getRole().name())
                 .build();
 
+        // Also surface the token in the response body (in addition to the HttpOnly cookie the
+        // controller sets from LoginResult.token()) so callers that cannot rely on cookies — a
+        // cross-site SPA, a native client — can authenticate via `Authorization: Bearer <token>`
+        // instead. See JwtCookieAuthenticationFilter, which accepts either transport.
         AuthResponse authResponse = AuthResponse.builder()
                 .message("Login successful")
                 .user(userResponse)
+                .token(token)
                 .build();
 
         return new LoginResult(token, authResponse);
