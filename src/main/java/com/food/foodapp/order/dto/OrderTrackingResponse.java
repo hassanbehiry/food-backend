@@ -26,6 +26,7 @@ public class OrderTrackingResponse {
     private List<TrackingStepResponse> steps;
     private LocalDateTime estimatedDeliveryAt;
     private LocalDateTime statusUpdatedAt;
+    private LocalDateTime deliveredAt;
 
     /** Header fields the tracking screen shows alongside the map/steps. */
     private String restaurantName;

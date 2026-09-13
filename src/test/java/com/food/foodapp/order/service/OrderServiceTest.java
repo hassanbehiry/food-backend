@@ -15,16 +15,13 @@ import com.food.foodapp.common.exception.CartEmptyException;
 import com.food.foodapp.common.exception.InvalidOrderStatusTransitionException;
 import com.food.foodapp.common.exception.InvalidRequestParameterException;
 import com.food.foodapp.common.exception.MenuItemUnavailableException;
-import com.food.foodapp.common.exception.CouponNotApplicableException;
-import com.food.foodapp.common.exception.CouponNotFoundException;
 import com.food.foodapp.common.exception.OrderNotFoundException;
 import com.food.foodapp.common.exception.RestaurantNotFoundException;
-import com.food.foodapp.coupon.entity.Coupon;
-import com.food.foodapp.coupon.entity.DiscountType;
-import com.food.foodapp.coupon.service.CouponService;
 import com.food.foodapp.menu.entity.MenuItem;
 import com.food.foodapp.order.dto.CheckoutRequest;
 import com.food.foodapp.order.dto.CheckoutResponse;
+import com.food.foodapp.order.dto.DeliveryDashboardResponse;
+import com.food.foodapp.order.dto.OrderDeliveryResponse;
 import com.food.foodapp.order.dto.OrderListResponse;
 import com.food.foodapp.order.dto.OrderResponse;
 import com.food.foodapp.order.dto.OrderTrackingResponse;
@@ -33,11 +30,15 @@ import com.food.foodapp.order.dto.OwnerDashboardResponse;
 import com.food.foodapp.order.dto.OwnerOrderListResponse;
 import com.food.foodapp.order.dto.OwnerOrderResponse;
 import com.food.foodapp.order.dto.OwnerRevenueAnalyticsResponse;
+import com.food.foodapp.order.entity.DeliveryConfirmedBy;
 import com.food.foodapp.order.entity.Order;
 import com.food.foodapp.order.entity.OrderStatus;
 import com.food.foodapp.order.entity.PaymentMethod;
+import com.food.foodapp.order.entity.RevenueTransaction;
 import com.food.foodapp.order.repository.OrderItemCount;
 import com.food.foodapp.order.repository.OrderRepository;
+import com.food.foodapp.order.repository.RevenueAggregate;
+import com.food.foodapp.order.repository.RevenueTransactionRepository;
 import com.food.foodapp.restaurant.entity.Restaurant;
 import com.food.foodapp.restaurant.entity.RestaurantApprovalStatus;
 import com.food.foodapp.restaurant.repository.RestaurantRepository;
@@ -50,6 +51,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
@@ -64,11 +66,11 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -103,10 +105,10 @@ class OrderServiceTest {
     private OrderAnalyticsService orderAnalyticsService;
 
     @Mock
-    private CouponService couponService;
+    private PlatformSettingsService platformSettingsService;
 
     @Mock
-    private PlatformSettingsService platformSettingsService;
+    private RevenueTransactionRepository revenueTransactionRepository;
 
     private OrderService orderService;
 
@@ -114,7 +116,7 @@ class OrderServiceTest {
     void setUp() {
         orderService = new OrderService(cartRepository, cartItemRepository, addressRepository, userRepository,
                 orderRepository, restaurantRepository, userContext, ownershipGuard, orderAnalyticsService,
-                couponService, platformSettingsService);
+                platformSettingsService, revenueTransactionRepository);
         lenient().when(userContext.getCurrentUserId()).thenReturn(1L);
         lenient().when(userRepository.findById(1L)).thenReturn(Optional.of(activeCustomer(1L)));
     }
@@ -172,7 +174,6 @@ class OrderServiceTest {
         Restaurant restaurant = new Restaurant();
         restaurant.setId(5L);
         restaurant.setApprovalStatus(RestaurantApprovalStatus.SUSPENDED);
-        restaurant.setOpenForOrders(true);
         Cart cart = cartWithOneItem(restaurant);
         when(cartRepository.findByCustomerIdWithItems(1L)).thenReturn(Optional.of(cart));
 
@@ -281,36 +282,6 @@ class OrderServiceTest {
     }
 
     @Test
-    void previewCheckout_appliesCouponDiscount_whenCouponCodeValid() {
-        Restaurant restaurant = visibleRestaurant();
-        Cart cart = cartWithOneItem(restaurant);
-        when(cartRepository.findByCustomerIdWithItems(1L)).thenReturn(Optional.of(cart));
-        when(addressRepository.findByIdAndCustomerId(50L, 1L)).thenReturn(Optional.of(address(50L)));
-        Coupon coupon = coupon("SAVE10", DiscountType.FIXED, BigDecimal.TEN);
-        when(couponService.validate("SAVE10", restaurant, BigDecimal.valueOf(100)))
-                .thenReturn(new CouponService.CouponApplication(coupon, BigDecimal.TEN));
-
-        CheckoutResponse response = orderService.previewCheckout(checkoutRequest(50L, "CASH_ON_DELIVERY", "SAVE10"));
-
-        assertThat(response.getCouponCode()).isEqualTo("SAVE10");
-        assertThat(response.getDiscount()).isEqualByComparingTo(BigDecimal.TEN);
-        assertThat(response.getTotal()).isEqualByComparingTo(BigDecimal.valueOf(102));
-    }
-
-    @Test
-    void previewCheckout_propagatesCouponNotFound_whenCouponCodeUnknown() {
-        Restaurant restaurant = visibleRestaurant();
-        Cart cart = cartWithOneItem(restaurant);
-        when(cartRepository.findByCustomerIdWithItems(1L)).thenReturn(Optional.of(cart));
-        when(addressRepository.findByIdAndCustomerId(50L, 1L)).thenReturn(Optional.of(address(50L)));
-        when(couponService.validate("BADCODE", restaurant, BigDecimal.valueOf(100)))
-                .thenThrow(new CouponNotFoundException("Coupon not found: BADCODE"));
-
-        assertThatThrownBy(() -> orderService.previewCheckout(checkoutRequest(50L, "CASH_ON_DELIVERY", "BADCODE")))
-                .isInstanceOf(CouponNotFoundException.class);
-    }
-
-    @Test
     void placeOrder_persistsOrderAndClearsCart() {
         Restaurant restaurant = visibleRestaurant();
         Cart cart = cartWithOneItem(restaurant);
@@ -328,7 +299,7 @@ class OrderServiceTest {
 
         assertThat(response.getId()).isEqualTo(500L);
         assertThat(response.getOrderNumber()).startsWith("ORD-");
-        assertThat(response.getStatus()).isEqualTo(OrderStatus.NEW);
+        assertThat(response.getStatus()).isEqualTo(OrderStatus.CONFIRMED);
         assertThat(response.getPaymentMethod()).isEqualTo(PaymentMethod.CASH_ON_DELIVERY);
         assertThat(response.getTotal()).isEqualByComparingTo(BigDecimal.valueOf(112));
         assertThat(response.getItems()).hasSize(1);
@@ -337,47 +308,6 @@ class OrderServiceTest {
         verify(cartItemRepository).deleteByCartId(cart.getId());
         assertThat(cart.getItems()).isEmpty();
         assertThat(cart.getRestaurant()).isNull();
-        verify(couponService, never()).recordUsage(any(), any());
-    }
-
-    @Test
-    void placeOrder_recordsCouponUsage_andSnapshotsCouponCode_whenCouponApplied() {
-        Restaurant restaurant = visibleRestaurant();
-        Cart cart = cartWithOneItem(restaurant);
-        when(cartRepository.findByCustomerIdForUpdate(1L)).thenReturn(Optional.of(cart));
-        when(cartRepository.findByCustomerIdWithItems(1L)).thenReturn(Optional.of(cart));
-        when(addressRepository.findByIdAndCustomerId(50L, 1L)).thenReturn(Optional.of(address(50L)));
-        when(userRepository.getReferenceById(1L)).thenReturn(new User());
-        when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> {
-            Order order = invocation.getArgument(0);
-            order.setId(500L);
-            return order;
-        });
-        Coupon coupon = coupon("SAVE10", DiscountType.FIXED, BigDecimal.TEN);
-        when(couponService.validate("SAVE10", restaurant, BigDecimal.valueOf(100)))
-                .thenReturn(new CouponService.CouponApplication(coupon, BigDecimal.TEN));
-
-        OrderResponse response = orderService.placeOrder(checkoutRequest(50L, "CASH_ON_DELIVERY", "SAVE10"));
-
-        assertThat(response.getCouponCode()).isEqualTo("SAVE10");
-        assertThat(response.getDiscount()).isEqualByComparingTo(BigDecimal.TEN);
-        assertThat(response.getTotal()).isEqualByComparingTo(BigDecimal.valueOf(102));
-        verify(couponService).recordUsage(eq(coupon), any(Order.class));
-    }
-
-    @Test
-    void placeOrder_rollsBackWithoutRecordingUsage_whenCouponNoLongerApplicable() {
-        Restaurant restaurant = visibleRestaurant();
-        Cart cart = cartWithOneItem(restaurant);
-        when(cartRepository.findByCustomerIdForUpdate(1L)).thenReturn(Optional.of(cart));
-        when(cartRepository.findByCustomerIdWithItems(1L)).thenReturn(Optional.of(cart));
-        when(addressRepository.findByIdAndCustomerId(50L, 1L)).thenReturn(Optional.of(address(50L)));
-        when(couponService.validate("SAVE10", restaurant, BigDecimal.valueOf(100)))
-                .thenThrow(new CouponNotApplicableException("Coupon usage limit has been reached: SAVE10"));
-
-        assertThatThrownBy(() -> orderService.placeOrder(checkoutRequest(50L, "CASH_ON_DELIVERY", "SAVE10")))
-                .isInstanceOf(CouponNotApplicableException.class);
-        verify(orderRepository, never()).save(any());
     }
 
     @Test
@@ -419,7 +349,7 @@ class OrderServiceTest {
 
     @Test
     void getOrder_returnsOrder_whenOwnedByCaller() {
-        Order order = existingOrder(700L, OrderStatus.NEW);
+        Order order = existingOrder(700L, OrderStatus.CONFIRMED);
         when(orderRepository.findByIdAndCustomerIdWithItems(700L, 1L)).thenReturn(Optional.of(order));
 
         OrderResponse response = orderService.getOrder(700L);
@@ -435,17 +365,6 @@ class OrderServiceTest {
     }
 
     @Test
-    void cancelOrder_cancels_whenStillPending() {
-        Order order = existingOrder(700L, OrderStatus.NEW);
-        when(orderRepository.findByIdAndCustomerIdWithItems(700L, 1L)).thenReturn(Optional.of(order));
-
-        OrderResponse response = orderService.cancelOrder(700L);
-
-        assertThat(response.getStatus()).isEqualTo(OrderStatus.CANCELLED);
-        verify(orderRepository).save(order);
-    }
-
-    @Test
     void cancelOrder_cancels_whenConfirmed() {
         Order order = existingOrder(700L, OrderStatus.CONFIRMED);
         when(orderRepository.findByIdAndCustomerIdWithItems(700L, 1L)).thenReturn(Optional.of(order));
@@ -456,13 +375,29 @@ class OrderServiceTest {
     }
 
     @Test
-    void cancelOrder_throwsInvalidTransition_oncePreparingHasStarted() {
-        Order order = existingOrder(700L, OrderStatus.PREPARING);
+    void cancelOrder_cancels_whenPreparingOrReadyForDelivery_butNotOnceOutForDelivery() {
+        Order preparing = existingOrder(700L, OrderStatus.PREPARING);
+        when(orderRepository.findByIdAndCustomerIdWithItems(700L, 1L)).thenReturn(Optional.of(preparing));
+        assertThat(orderService.cancelOrder(700L).getStatus()).isEqualTo(OrderStatus.CANCELLED);
+
+        Order ready = existingOrder(701L, OrderStatus.READY_FOR_DELIVERY);
+        when(orderRepository.findByIdAndCustomerIdWithItems(701L, 1L)).thenReturn(Optional.of(ready));
+        assertThat(orderService.cancelOrder(701L).getStatus()).isEqualTo(OrderStatus.CANCELLED);
+
+        Order outForDelivery = existingOrder(702L, OrderStatus.OUT_FOR_DELIVERY);
+        when(orderRepository.findByIdAndCustomerIdWithItems(702L, 1L)).thenReturn(Optional.of(outForDelivery));
+        assertThatThrownBy(() -> orderService.cancelOrder(702L))
+                .isInstanceOf(InvalidOrderStatusTransitionException.class);
+    }
+
+    @Test
+    void cancelOrder_throwsInvalidTransition_onceDelivered() {
+        Order order = existingOrder(700L, OrderStatus.DELIVERED);
         when(orderRepository.findByIdAndCustomerIdWithItems(700L, 1L)).thenReturn(Optional.of(order));
 
         assertThatThrownBy(() -> orderService.cancelOrder(700L))
                 .isInstanceOf(InvalidOrderStatusTransitionException.class);
-        assertThat(order.getStatus()).isEqualTo(OrderStatus.PREPARING);
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.DELIVERED);
     }
 
     @Test
@@ -473,14 +408,231 @@ class OrderServiceTest {
     }
 
     @Test
+    void confirmDelivery_marksDelivered_andStampsDeliveredAtAndBy_whenOutForDelivery() {
+        Order order = existingOrder(700L, OrderStatus.OUT_FOR_DELIVERY);
+        when(orderRepository.findByIdAndCustomerIdForUpdate(700L, 1L)).thenReturn(Optional.of(order));
+
+        OrderResponse response = orderService.confirmDelivery(700L);
+
+        assertThat(response.getStatus()).isEqualTo(OrderStatus.DELIVERED);
+        assertThat(response.getDeliveredAt()).isNotNull();
+        assertThat(order.getDeliveredAt()).isNotNull();
+        assertThat(order.getDeliveredBy()).isEqualTo(DeliveryConfirmedBy.CUSTOMER);
+        verify(orderRepository).save(order);
+        verify(revenueTransactionRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void confirmDelivery_throwsNotFound_whenNotOwnedByCaller() {
+        when(orderRepository.findByIdAndCustomerIdForUpdate(700L, 1L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> orderService.confirmDelivery(700L)).isInstanceOf(OrderNotFoundException.class);
+    }
+
+    @Test
+    void confirmDelivery_throwsInvalidTransition_whenStillConfirmed() {
+        Order order = existingOrder(700L, OrderStatus.CONFIRMED);
+        when(orderRepository.findByIdAndCustomerIdForUpdate(700L, 1L)).thenReturn(Optional.of(order));
+
+        assertThatThrownBy(() -> orderService.confirmDelivery(700L))
+                .isInstanceOf(InvalidOrderStatusTransitionException.class);
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.CONFIRMED);
+        assertThat(order.getDeliveredAt()).isNull();
+    }
+
+    @Test
+    void confirmDelivery_throwsInvalidTransition_whenAlreadyDelivered() {
+        Order order = existingOrder(700L, OrderStatus.DELIVERED);
+        when(orderRepository.findByIdAndCustomerIdForUpdate(700L, 1L)).thenReturn(Optional.of(order));
+
+        assertThatThrownBy(() -> orderService.confirmDelivery(700L))
+                .isInstanceOf(InvalidOrderStatusTransitionException.class);
+        verify(orderRepository, never()).save(any());
+    }
+
+    @Test
+    void sendToDelivery_marksOutForDelivery_andStampsTimestampAndDeliveryPerson_whenReadyForDelivery() {
+        Order order = existingOrder(700L, OrderStatus.READY_FOR_DELIVERY);
+        when(ownershipGuard.requireOwnedRestaurant(5L)).thenReturn(visibleRestaurant());
+        when(orderRepository.findByIdAndRestaurantIdForUpdate(700L, 5L)).thenReturn(Optional.of(order));
+
+        OrderResponse response = orderService.sendToDelivery(5L, 700L, "Mohamed");
+
+        assertThat(response.getStatus()).isEqualTo(OrderStatus.OUT_FOR_DELIVERY);
+        assertThat(order.getSentToDeliveryAt()).isNotNull();
+        assertThat(order.getDeliveryPersonName()).isEqualTo("Mohamed");
+        verify(orderRepository).save(order);
+    }
+
+    @Test
+    void sendToDelivery_leavesDeliveryPersonNull_whenNotSupplied() {
+        Order order = existingOrder(700L, OrderStatus.READY_FOR_DELIVERY);
+        when(ownershipGuard.requireOwnedRestaurant(5L)).thenReturn(visibleRestaurant());
+        when(orderRepository.findByIdAndRestaurantIdForUpdate(700L, 5L)).thenReturn(Optional.of(order));
+
+        orderService.sendToDelivery(5L, 700L, null);
+
+        assertThat(order.getDeliveryPersonName()).isNull();
+    }
+
+    @Test
+    void sendToDelivery_throwsInvalidTransition_whenStillConfirmed() {
+        Order order = existingOrder(700L, OrderStatus.CONFIRMED);
+        when(ownershipGuard.requireOwnedRestaurant(5L)).thenReturn(visibleRestaurant());
+        when(orderRepository.findByIdAndRestaurantIdForUpdate(700L, 5L)).thenReturn(Optional.of(order));
+
+        assertThatThrownBy(() -> orderService.sendToDelivery(5L, 700L, null))
+                .isInstanceOf(InvalidOrderStatusTransitionException.class);
+        assertThat(order.getSentToDeliveryAt()).isNull();
+    }
+
+    @Test
+    void sendToDelivery_throwsNotFound_whenOrderNotOwnedByRestaurant() {
+        when(ownershipGuard.requireOwnedRestaurant(5L)).thenReturn(visibleRestaurant());
+        when(orderRepository.findByIdAndRestaurantIdForUpdate(700L, 5L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> orderService.sendToDelivery(5L, 700L, null))
+                .isInstanceOf(OrderNotFoundException.class);
+    }
+
+    @Test
+    void sendToDelivery_propagatesAccessDenied_beforeLoadingOrder() {
+        when(ownershipGuard.requireOwnedRestaurant(5L))
+                .thenThrow(new com.food.foodapp.common.exception.OwnerAccessDeniedException("nope"));
+
+        assertThatThrownBy(() -> orderService.sendToDelivery(5L, 700L, null))
+                .isInstanceOf(com.food.foodapp.common.exception.OwnerAccessDeniedException.class);
+        verify(orderRepository, never()).findByIdAndRestaurantIdForUpdate(any(), any());
+    }
+
+    @Test
+    void deliverOrder_marksDelivered_andRecordsRevenue_atomically_whenOutForDelivery() {
+        Order order = existingOrder(700L, OrderStatus.OUT_FOR_DELIVERY);
+        order.setCustomer(customer("Ali"));
+        when(ownershipGuard.requireOwnedRestaurant(5L)).thenReturn(visibleRestaurant());
+        when(orderRepository.findByIdAndRestaurantIdForUpdate(700L, 5L)).thenReturn(Optional.of(order));
+        when(revenueTransactionRepository.saveAndFlush(any(RevenueTransaction.class))).thenAnswer(invocation -> {
+            RevenueTransaction tx = invocation.getArgument(0);
+            tx.setId(1L);
+            tx.setCreatedAt(LocalDateTime.now());
+            return tx;
+        });
+
+        OrderDeliveryResponse response = orderService.deliverOrder(5L, 700L);
+
+        assertThat(response.getOrder().getStatus()).isEqualTo(OrderStatus.DELIVERED);
+        assertThat(order.getDeliveredBy()).isEqualTo(DeliveryConfirmedBy.OWNER);
+        assertThat(response.getRevenue().getAmount()).isEqualByComparingTo(BigDecimal.valueOf(112));
+        assertThat(response.getRevenue().getCreatedAt()).isNotNull();
+
+        verify(orderRepository).save(order);
+        verify(revenueTransactionRepository).saveAndFlush(argThat(tx ->
+                tx.getOrder() == order && tx.getRestaurant() == order.getRestaurant()
+                        && tx.getAmount().compareTo(BigDecimal.valueOf(112)) == 0));
+    }
+
+    @Test
+    void deliverOrder_throwsInvalidTransition_whenNotYetOutForDelivery() {
+        Order order = existingOrder(700L, OrderStatus.READY_FOR_DELIVERY);
+        when(ownershipGuard.requireOwnedRestaurant(5L)).thenReturn(visibleRestaurant());
+        when(orderRepository.findByIdAndRestaurantIdForUpdate(700L, 5L)).thenReturn(Optional.of(order));
+
+        assertThatThrownBy(() -> orderService.deliverOrder(5L, 700L))
+                .isInstanceOf(InvalidOrderStatusTransitionException.class);
+        verify(revenueTransactionRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void deliverOrder_throwsInvalidTransition_whenAlreadyDelivered_rejectingDuplicateRevenue() {
+        Order order = existingOrder(700L, OrderStatus.DELIVERED);
+        when(ownershipGuard.requireOwnedRestaurant(5L)).thenReturn(visibleRestaurant());
+        when(orderRepository.findByIdAndRestaurantIdForUpdate(700L, 5L)).thenReturn(Optional.of(order));
+
+        assertThatThrownBy(() -> orderService.deliverOrder(5L, 700L))
+                .isInstanceOf(InvalidOrderStatusTransitionException.class);
+        verify(revenueTransactionRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void deliverOrder_translatesDatabaseUniqueViolation_toInvalidTransition_asDefenseInDepth() {
+        Order order = existingOrder(700L, OrderStatus.OUT_FOR_DELIVERY);
+        when(ownershipGuard.requireOwnedRestaurant(5L)).thenReturn(visibleRestaurant());
+        when(orderRepository.findByIdAndRestaurantIdForUpdate(700L, 5L)).thenReturn(Optional.of(order));
+        when(revenueTransactionRepository.saveAndFlush(any(RevenueTransaction.class)))
+                .thenThrow(new DataIntegrityViolationException("duplicate key value violates unique constraint"));
+
+        assertThatThrownBy(() -> orderService.deliverOrder(5L, 700L))
+                .isInstanceOf(InvalidOrderStatusTransitionException.class);
+        // The status flip already ran in-memory before the revenue write failed; the surrounding
+        // @Transactional is what actually rolls the status change back in production — see
+        // OrderService#deliverOrder's javadoc. This unit test cannot exercise real transaction
+        // rollback (there is no real datasource here); that is covered at the repository/integration
+        // level instead.
+    }
+
+    @Test
+    void deliverOrder_throwsNotFound_whenOrderNotOwnedByRestaurant() {
+        when(ownershipGuard.requireOwnedRestaurant(5L)).thenReturn(visibleRestaurant());
+        when(orderRepository.findByIdAndRestaurantIdForUpdate(700L, 5L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> orderService.deliverOrder(5L, 700L)).isInstanceOf(OrderNotFoundException.class);
+    }
+
+    @Test
+    void deliverOrder_propagatesAccessDenied_beforeLoadingOrder() {
+        when(ownershipGuard.requireOwnedRestaurant(5L))
+                .thenThrow(new com.food.foodapp.common.exception.OwnerAccessDeniedException("nope"));
+
+        assertThatThrownBy(() -> orderService.deliverOrder(5L, 700L))
+                .isInstanceOf(com.food.foodapp.common.exception.OwnerAccessDeniedException.class);
+        verify(orderRepository, never()).findByIdAndRestaurantIdForUpdate(any(), any());
+    }
+
+    @Test
+    void getDeliveryDashboard_summarizesActiveOrders_andTodaysDeliveredRevenue() {
+        when(ownershipGuard.requireOwnedRestaurant(5L)).thenReturn(visibleRestaurant());
+        Order active1 = existingOrder(700L, OrderStatus.OUT_FOR_DELIVERY);
+        active1.setCustomer(customer("Ali"));
+        active1.getItems().add(new com.food.foodapp.order.entity.OrderItem(
+                active1, 10L, "Pizza", null, BigDecimal.valueOf(50), 2, BigDecimal.valueOf(100)));
+        Order active2 = existingOrder(701L, OrderStatus.OUT_FOR_DELIVERY);
+        active2.setCustomer(customer("Sara"));
+        active2.setTotal(BigDecimal.valueOf(200));
+        when(orderRepository.findByRestaurantIdAndStatusWithItems(5L, OrderStatus.OUT_FOR_DELIVERY))
+                .thenReturn(List.of(active1, active2));
+        when(orderRepository.sumRevenueByRestaurantAndStatusInRange(
+                eq(5L), eq(OrderStatus.DELIVERED), any(LocalDateTime.class), any(LocalDateTime.class)))
+                .thenReturn(new RevenueAggregate(BigDecimal.valueOf(340), 3L));
+
+        DeliveryDashboardResponse response = orderService.getDeliveryDashboard(5L);
+
+        assertThat(response.getSummary().getActiveCount()).isEqualTo(2);
+        assertThat(response.getSummary().getActiveTotalValue()).isEqualByComparingTo(BigDecimal.valueOf(312));
+        assertThat(response.getSummary().getDeliveredTodayCount()).isEqualTo(3);
+        assertThat(response.getSummary().getDeliveredTodayRevenue()).isEqualByComparingTo(BigDecimal.valueOf(340));
+        assertThat(response.getOrders()).hasSize(2);
+        assertThat(response.getOrders().get(0).getCustomerName()).isEqualTo("Ali");
+        assertThat(response.getOrders().get(0).getItems()).hasSize(1);
+    }
+
+    @Test
+    void getDeliveryDashboard_throwsAccessDenied_whenCallerDoesNotOwnRestaurant() {
+        when(ownershipGuard.requireOwnedRestaurant(5L))
+                .thenThrow(new com.food.foodapp.common.exception.OwnerAccessDeniedException("nope"));
+
+        assertThatThrownBy(() -> orderService.getDeliveryDashboard(5L))
+                .isInstanceOf(com.food.foodapp.common.exception.OwnerAccessDeniedException.class);
+    }
+
+    @Test
     void trackOrder_returnsTrackingResponse_whenOwnedByCaller() {
-        Order order = existingOrder(700L, OrderStatus.PREPARING);
+        Order order = existingOrder(700L, OrderStatus.CONFIRMED);
         when(orderRepository.findByIdAndCustomerIdWithItems(700L, 1L)).thenReturn(Optional.of(order));
 
         OrderTrackingResponse response = orderService.trackOrder(700L);
 
         assertThat(response.getOrderId()).isEqualTo(700L);
-        assertThat(response.getStatus()).isEqualTo(OrderStatus.PREPARING);
+        assertThat(response.getStatus()).isEqualTo(OrderStatus.CONFIRMED);
     }
 
     @Test
@@ -492,7 +644,7 @@ class OrderServiceTest {
 
     @Test
     void listOrdersForCustomer_returnsPaginatedSummaries_withItemCounts() {
-        Order order = existingOrder(700L, OrderStatus.NEW);
+        Order order = existingOrder(700L, OrderStatus.CONFIRMED);
         when(orderRepository.findByCustomerIdWithFilters(
                 eq(1L), isNull(), isNull(), any(LocalDateTime.class), any(LocalDateTime.class), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(order), Pageable.ofSize(20), 1));
@@ -510,7 +662,7 @@ class OrderServiceTest {
 
     @Test
     void listOrdersForCustomer_defaultsItemCountToZero_whenNoMatchingLinesFound() {
-        Order order = existingOrder(700L, OrderStatus.NEW);
+        Order order = existingOrder(700L, OrderStatus.CONFIRMED);
         when(orderRepository.findByCustomerIdWithFilters(
                 eq(1L), isNull(), isNull(), any(LocalDateTime.class), any(LocalDateTime.class), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(order), Pageable.ofSize(20), 1));
@@ -570,39 +722,67 @@ class OrderServiceTest {
     }
 
     @Test
-    void updateOrderStatus_movesNewOrderStraightToPreparing_hoppingThroughConfirmed() {
-        Order order = existingOrder(700L, OrderStatus.NEW);
+    void updateOrderStatus_marksConfirmedOrderAsPreparing() {
+        Order order = existingOrder(700L, OrderStatus.CONFIRMED);
         when(orderRepository.findByIdAndRestaurantIdWithItems(700L, 5L)).thenReturn(Optional.of(order));
 
         OrderResponse response = orderService.updateOrderStatus(5L, 700L, "PREPARING");
 
         assertThat(response.getStatus()).isEqualTo(OrderStatus.PREPARING);
-        verify(orderRepository, times(2)).save(order);
+        verify(orderRepository).save(order);
     }
 
     @Test
-    void updateOrderStatus_movesPreparingToOnTheWay_directly() {
+    void updateOrderStatus_marksPreparingOrderAsReadyForDelivery() {
         Order order = existingOrder(700L, OrderStatus.PREPARING);
         when(orderRepository.findByIdAndRestaurantIdWithItems(700L, 5L)).thenReturn(Optional.of(order));
 
-        OrderResponse response = orderService.updateOrderStatus(5L, 700L, "on_the_way");
+        OrderResponse response = orderService.updateOrderStatus(5L, 700L, "ready_for_delivery");
 
-        assertThat(response.getStatus()).isEqualTo(OrderStatus.ON_THE_WAY);
+        assertThat(response.getStatus()).isEqualTo(OrderStatus.READY_FOR_DELIVERY);
     }
 
     @Test
-    void updateOrderStatus_rejectsIllegalTransition() {
-        Order order = existingOrder(700L, OrderStatus.NEW);
+    void updateOrderStatus_rejectsOutForDeliveryAsExplicitOwnerTarget_dispatchHasItsOwnDedicatedEndpoint() {
+        Order order = existingOrder(700L, OrderStatus.READY_FOR_DELIVERY);
+        when(orderRepository.findByIdAndRestaurantIdWithItems(700L, 5L)).thenReturn(Optional.of(order));
+
+        assertThatThrownBy(() -> orderService.updateOrderStatus(5L, 700L, "OUT_FOR_DELIVERY"))
+                .isInstanceOf(InvalidRequestParameterException.class);
+    }
+
+    @Test
+    void updateOrderStatus_rejectsDeliveredAsExplicitOwnerTarget_deliveryHasItsOwnDedicatedEndpoint() {
+        Order order = existingOrder(700L, OrderStatus.OUT_FOR_DELIVERY);
         when(orderRepository.findByIdAndRestaurantIdWithItems(700L, 5L)).thenReturn(Optional.of(order));
 
         assertThatThrownBy(() -> orderService.updateOrderStatus(5L, 700L, "DELIVERED"))
+                .isInstanceOf(InvalidRequestParameterException.class);
+    }
+
+    @Test
+    void updateOrderStatus_marksConfirmedOrderAsCancelled() {
+        Order order = existingOrder(700L, OrderStatus.CONFIRMED);
+        when(orderRepository.findByIdAndRestaurantIdWithItems(700L, 5L)).thenReturn(Optional.of(order));
+
+        OrderResponse response = orderService.updateOrderStatus(5L, 700L, "cancelled");
+
+        assertThat(response.getStatus()).isEqualTo(OrderStatus.CANCELLED);
+    }
+
+    @Test
+    void updateOrderStatus_rejectsIllegalTransition_onceOutForDelivery() {
+        Order order = existingOrder(700L, OrderStatus.OUT_FOR_DELIVERY);
+        when(orderRepository.findByIdAndRestaurantIdWithItems(700L, 5L)).thenReturn(Optional.of(order));
+
+        assertThatThrownBy(() -> orderService.updateOrderStatus(5L, 700L, "CANCELLED"))
                 .isInstanceOf(InvalidOrderStatusTransitionException.class);
-        assertThat(order.getStatus()).isEqualTo(OrderStatus.NEW);
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.OUT_FOR_DELIVERY);
     }
 
     @Test
     void updateOrderStatus_rejectsUnknownStatusValue() {
-        Order order = existingOrder(700L, OrderStatus.NEW);
+        Order order = existingOrder(700L, OrderStatus.CONFIRMED);
         when(orderRepository.findByIdAndRestaurantIdWithItems(700L, 5L)).thenReturn(Optional.of(order));
 
         assertThatThrownBy(() -> orderService.updateOrderStatus(5L, 700L, "SHIPPED"))
@@ -610,12 +790,10 @@ class OrderServiceTest {
     }
 
     @Test
-    void updateOrderStatus_rejectsNewAndConfirmedAsExplicitOwnerTargets() {
-        Order order = existingOrder(700L, OrderStatus.NEW);
+    void updateOrderStatus_rejectsConfirmedAsExplicitOwnerTarget() {
+        Order order = existingOrder(700L, OrderStatus.CONFIRMED);
         when(orderRepository.findByIdAndRestaurantIdWithItems(700L, 5L)).thenReturn(Optional.of(order));
 
-        assertThatThrownBy(() -> orderService.updateOrderStatus(5L, 700L, "NEW"))
-                .isInstanceOf(InvalidRequestParameterException.class);
         assertThatThrownBy(() -> orderService.updateOrderStatus(5L, 700L, "CONFIRMED"))
                 .isInstanceOf(InvalidRequestParameterException.class);
     }
@@ -624,14 +802,14 @@ class OrderServiceTest {
     void updateOrderStatus_throwsNotFound_whenOrderNotOwnedByRestaurant() {
         when(orderRepository.findByIdAndRestaurantIdWithItems(700L, 5L)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> orderService.updateOrderStatus(5L, 700L, "PREPARING"))
+        assertThatThrownBy(() -> orderService.updateOrderStatus(5L, 700L, "DELIVERED"))
                 .isInstanceOf(OrderNotFoundException.class);
     }
 
     @Test
     void listOrdersForOwner_returnsPaginatedSummaries_whenNoStatusFilter() {
         when(ownershipGuard.requireOwnedRestaurant(5L)).thenReturn(visibleRestaurant());
-        Order order = existingOrder(700L, OrderStatus.NEW);
+        Order order = existingOrder(700L, OrderStatus.CONFIRMED);
         order.setCustomer(customer("Ali"));
         when(orderRepository.findByRestaurantIdAndOptionalStatus(eq(5L), isNull(), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(order), Pageable.ofSize(20), 1));
@@ -646,22 +824,23 @@ class OrderServiceTest {
     @Test
     void listOrdersForOwner_filtersByStatus() {
         when(ownershipGuard.requireOwnedRestaurant(5L)).thenReturn(visibleRestaurant());
-        when(orderRepository.findByRestaurantIdAndOptionalStatus(eq(5L), eq(OrderStatus.PREPARING), any(Pageable.class)))
+        when(orderRepository.findByRestaurantIdAndOptionalStatus(eq(5L), eq(OrderStatus.CONFIRMED), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(), Pageable.ofSize(20), 0));
 
-        orderService.listOrdersForOwner(5L, "preparing", 0, 20);
+        orderService.listOrdersForOwner(5L, "confirmed", 0, 20);
 
-        verify(orderRepository).findByRestaurantIdAndOptionalStatus(eq(5L), eq(OrderStatus.PREPARING), any(Pageable.class));
+        verify(orderRepository).findByRestaurantIdAndOptionalStatus(eq(5L), eq(OrderStatus.CONFIRMED), any(Pageable.class));
     }
 
     @Test
-    void listOrdersForOwner_rejectsConfirmedAndCancelledAsFilterValues() {
+    void listOrdersForOwner_filtersByCancelled() {
         when(ownershipGuard.requireOwnedRestaurant(5L)).thenReturn(visibleRestaurant());
+        when(orderRepository.findByRestaurantIdAndOptionalStatus(eq(5L), eq(OrderStatus.CANCELLED), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(), Pageable.ofSize(20), 0));
 
-        assertThatThrownBy(() -> orderService.listOrdersForOwner(5L, "CONFIRMED", 0, 20))
-                .isInstanceOf(InvalidRequestParameterException.class);
-        assertThatThrownBy(() -> orderService.listOrdersForOwner(5L, "CANCELLED", 0, 20))
-                .isInstanceOf(InvalidRequestParameterException.class);
+        orderService.listOrdersForOwner(5L, "CANCELLED", 0, 20);
+
+        verify(orderRepository).findByRestaurantIdAndOptionalStatus(eq(5L), eq(OrderStatus.CANCELLED), any(Pageable.class));
     }
 
     @Test
@@ -694,7 +873,7 @@ class OrderServiceTest {
 
     @Test
     void getOrderForOwner_returnsDetail_whenOwnedByRestaurant() {
-        Order order = existingOrder(700L, OrderStatus.NEW);
+        Order order = existingOrder(700L, OrderStatus.CONFIRMED);
         order.setCustomer(customer("Ali"));
         when(orderRepository.findByIdAndRestaurantIdWithItems(700L, 5L)).thenReturn(Optional.of(order));
 
@@ -716,7 +895,7 @@ class OrderServiceTest {
         Restaurant restaurant = visibleRestaurant();
         when(ownershipGuard.requireOwnedRestaurant(5L)).thenReturn(restaurant);
         stubDashboardCounts();
-        Order order = existingOrder(700L, OrderStatus.NEW);
+        Order order = existingOrder(700L, OrderStatus.CONFIRMED);
         order.setCustomer(customer("Ali"));
         when(orderRepository.findByRestaurantIdAndOptionalStatus(eq(5L), isNull(), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(order), Pageable.ofSize(5), 1));
@@ -728,7 +907,7 @@ class OrderServiceTest {
         OwnerDashboardResponse response = orderService.getDashboard(5L);
 
         assertThat(response.getRestaurantId()).isEqualTo(5L);
-        assertThat(response.getStats().getNewCount()).isEqualTo(3L);
+        assertThat(response.getStats().getConfirmedCount()).isEqualTo(3L);
         assertThat(response.getStats().getTotalCount()).isEqualTo(16L);
         assertThat(response.getRecentOrders()).hasSize(1);
         assertThat(response.getRecentOrders().get(0).getItemCount()).isEqualTo(4);
@@ -772,10 +951,9 @@ class OrderServiceTest {
     }
 
     private void stubDashboardCounts() {
-        when(orderRepository.countByRestaurantIdAndStatus(5L, OrderStatus.NEW)).thenReturn(3L);
-        when(orderRepository.countByRestaurantIdAndStatus(5L, OrderStatus.PREPARING)).thenReturn(2L);
-        when(orderRepository.countByRestaurantIdAndStatus(5L, OrderStatus.ON_THE_WAY)).thenReturn(1L);
+        when(orderRepository.countByRestaurantIdAndStatus(5L, OrderStatus.CONFIRMED)).thenReturn(3L);
         when(orderRepository.countByRestaurantIdAndStatus(5L, OrderStatus.DELIVERED)).thenReturn(10L);
+        when(orderRepository.countByRestaurantIdAndStatus(5L, OrderStatus.CANCELLED)).thenReturn(3L);
         when(orderRepository.countByRestaurantId(5L)).thenReturn(16L);
     }
 
@@ -798,14 +976,9 @@ class OrderServiceTest {
     }
 
     private CheckoutRequest checkoutRequest(Long addressId, String paymentMethod) {
-        return checkoutRequest(addressId, paymentMethod, null);
-    }
-
-    private CheckoutRequest checkoutRequest(Long addressId, String paymentMethod, String couponCode) {
         CheckoutRequest request = new CheckoutRequest();
         request.setAddressId(addressId);
         request.setPaymentMethod(paymentMethod);
-        request.setCouponCode(couponCode);
         return request;
     }
 
@@ -817,23 +990,12 @@ class OrderServiceTest {
         return request;
     }
 
-    private Coupon coupon(String code, DiscountType type, BigDecimal value) {
-        Coupon coupon = new Coupon();
-        coupon.setId(9L);
-        coupon.setCode(code);
-        coupon.setDiscountType(type);
-        coupon.setDiscountValue(value);
-        coupon.setActive(true);
-        return coupon;
-    }
-
     private Restaurant visibleRestaurant() {
         Restaurant restaurant = new Restaurant();
         restaurant.setId(5L);
         restaurant.setName("Pizza Place");
         restaurant.setDeliveryFee(BigDecimal.valueOf(12));
         restaurant.setApprovalStatus(RestaurantApprovalStatus.APPROVED);
-        restaurant.setOpenForOrders(true);
         return restaurant;
     }
 
@@ -892,7 +1054,6 @@ class OrderServiceTest {
         order.setDeliveryCity("Cairo");
         order.setSubtotal(BigDecimal.valueOf(100));
         order.setDeliveryFee(BigDecimal.valueOf(12));
-        order.setDiscount(BigDecimal.ZERO);
         order.setTotal(BigDecimal.valueOf(112));
         order.setPaymentMethod(PaymentMethod.CASH_ON_DELIVERY);
         order.setStatus(status);

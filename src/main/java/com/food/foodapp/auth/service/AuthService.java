@@ -9,7 +9,10 @@ import com.food.foodapp.auth.entity.User;
 import com.food.foodapp.auth.entity.UserStatus;
 import com.food.foodapp.auth.jwt.JwtUtil;
 import com.food.foodapp.auth.repository.UserRepository;
+import com.food.foodapp.category.entity.Category;
+import com.food.foodapp.category.repository.CategoryRepository;
 import com.food.foodapp.common.exception.AccountSuspendedException;
+import com.food.foodapp.common.exception.CategoryNotFoundException;
 import com.food.foodapp.common.exception.DuplicateEmailException;
 import com.food.foodapp.common.exception.InvalidCredentialsException;
 import com.food.foodapp.common.exception.InvalidRequestParameterException;
@@ -37,6 +40,7 @@ public class AuthService {
     private final JwtUtil jwtUtil;
     private final PlatformSettingsService platformSettingsService;
     private final RestaurantRepository restaurantRepository;
+    private final CategoryRepository categoryRepository;
 
     /**
      * Registers a new user.
@@ -65,7 +69,17 @@ public class AuthService {
             if (request.getRestaurantName() == null || request.getRestaurantName().isBlank()) {
                 throw new InvalidRequestParameterException("restaurantName is required for an owner registration");
             }
+            if (request.getCategoryId() == null) {
+                throw new InvalidRequestParameterException("categoryId is required for an owner registration");
+            }
         }
+
+        // Resolved before touching persistence so an unknown categoryId 404s without leaving a
+        // half-registered user behind.
+        Category category = request.getRole() == Role.OWNER
+                ? categoryRepository.findById(request.getCategoryId())
+                        .orElseThrow(() -> new CategoryNotFoundException("Category not found: " + request.getCategoryId()))
+                : null;
 
         // Normalize email: lowercase + trim
         String normalizedEmail = request.getEmail().trim().toLowerCase();
@@ -92,18 +106,20 @@ public class AuthService {
         // transaction so "my restaurant" is always resolvable. The owner fills in cuisine,
         // delivery fee and hours afterward via the owner settings endpoint; the placeholder
         // values here satisfy the entity's NOT NULL / CHECK constraints without pretending to be
-        // real, and PENDING keeps the restaurant out of customer discovery until an admin approves.
+        // real, and PENDING keeps the restaurant out of customer discovery until an admin approves
+        // (open/closed is irrelevant until then — no hours are set yet, and isCustomerVisible
+        // requires APPROVED regardless).
         if (request.getRole() == Role.OWNER) {
             Restaurant restaurant = new Restaurant();
             restaurant.setName(request.getRestaurantName().trim());
             restaurant.setCuisine(request.getRestaurantName().trim());
             restaurant.setOwner(user);
             restaurant.setApprovalStatus(RestaurantApprovalStatus.PENDING);
-            restaurant.setOpenForOrders(false);
             restaurant.setDeliveryFee(BigDecimal.ZERO);
             restaurant.setMinimumOrder(BigDecimal.ZERO);
             restaurant.setEstimatedDeliveryMinMinutes(30);
             restaurant.setEstimatedDeliveryMaxMinutes(60);
+            restaurant.getCategories().add(category);
             restaurantRepository.save(restaurant);
         }
 

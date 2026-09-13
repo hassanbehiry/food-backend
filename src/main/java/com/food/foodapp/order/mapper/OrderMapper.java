@@ -5,6 +5,10 @@ import com.food.foodapp.address.mapper.AddressMapper;
 import com.food.foodapp.cart.entity.CartItem;
 import com.food.foodapp.cart.mapper.CartMapper;
 import com.food.foodapp.order.dto.CheckoutResponse;
+import com.food.foodapp.order.dto.DeliveryDashboardResponse;
+import com.food.foodapp.order.dto.DeliveryDashboardSummaryResponse;
+import com.food.foodapp.order.dto.DeliveryOrderResponse;
+import com.food.foodapp.order.dto.OrderDeliveryResponse;
 import com.food.foodapp.order.dto.OrderItemResponse;
 import com.food.foodapp.order.dto.OrderResponse;
 import com.food.foodapp.order.dto.OrderSummaryResponse;
@@ -15,11 +19,14 @@ import com.food.foodapp.order.dto.OwnerOrderResponse;
 import com.food.foodapp.order.dto.OwnerOrderStatsResponse;
 import com.food.foodapp.order.dto.OwnerOrderSummaryResponse;
 import com.food.foodapp.order.dto.OwnerRevenueAnalyticsResponse;
+import com.food.foodapp.order.dto.RevenueResponse;
 import com.food.foodapp.order.dto.TrackingStepResponse;
 import com.food.foodapp.order.entity.Order;
 import com.food.foodapp.order.entity.OrderItem;
 import com.food.foodapp.order.entity.OrderStatus;
 import com.food.foodapp.order.entity.PaymentMethod;
+import com.food.foodapp.order.entity.RevenueTransaction;
+import com.food.foodapp.order.repository.RevenueAggregate;
 import com.food.foodapp.restaurant.entity.Restaurant;
 
 import java.math.BigDecimal;
@@ -29,17 +36,17 @@ import java.util.List;
 
 public final class OrderMapper {
 
-    /** The customer-visible tracking milestones, in forward order. {@code CONFIRMED} is deliberately excluded — see {@link OrderStatus}. */
-    private static final List<OrderStatus> TRACKING_MILESTONES =
-            List.of(OrderStatus.NEW, OrderStatus.PREPARING, OrderStatus.ON_THE_WAY, OrderStatus.DELIVERED);
+    /** The customer-visible tracking milestones, in forward order — see {@link OrderStatus}. */
+    private static final List<OrderStatus> TRACKING_MILESTONES = List.of(
+            OrderStatus.CONFIRMED, OrderStatus.PREPARING, OrderStatus.READY_FOR_DELIVERY,
+            OrderStatus.OUT_FOR_DELIVERY, OrderStatus.DELIVERED);
 
     private OrderMapper() {
     }
 
     public static CheckoutResponse toCheckoutResponse(Restaurant restaurant, List<CartItem> items, Address address,
                                                         PaymentMethod paymentMethod, BigDecimal subtotal,
-                                                        BigDecimal deliveryFee, String couponCode,
-                                                        BigDecimal discount, BigDecimal total) {
+                                                        BigDecimal deliveryFee, BigDecimal total) {
         return CheckoutResponse.builder()
                 .restaurantId(restaurant.getId())
                 .restaurantName(restaurant.getName())
@@ -49,8 +56,6 @@ public final class OrderMapper {
                 .paymentMethod(paymentMethod)
                 .subtotal(subtotal)
                 .deliveryFee(deliveryFee)
-                .couponCode(couponCode)
-                .discount(discount)
                 .total(total)
                 .build();
     }
@@ -66,21 +71,18 @@ public final class OrderMapper {
                         order.getDeliveryStreet(), order.getDeliveryCity(), order.getDeliveryPostalCode()))
                 .subtotal(order.getSubtotal())
                 .deliveryFee(order.getDeliveryFee())
-                .couponCode(order.getCouponCode())
-                .discount(order.getDiscount())
                 .total(order.getTotal())
                 .paymentMethod(order.getPaymentMethod())
                 .status(order.getStatus())
                 .createdAt(order.getCreatedAt())
+                .deliveredAt(order.getDeliveredAt())
                 .build();
     }
 
     /**
      * {@code steps} is derived purely from {@code order.getStatus()} against
-     * {@link #TRACKING_MILESTONES}: a {@code CONFIRMED} order is rendered the same as {@code NEW}
-     * (accepting isn't a distinct dashboard step yet — see {@link OrderStatus}), and a
-     * {@code CANCELLED} order shows no step as completed or current, since {@code status} on the
-     * response already tells the caller it was cancelled.
+     * {@link #TRACKING_MILESTONES}: a {@code CANCELLED} order shows no step as completed or
+     * current, since {@code status} on the response already tells the caller it was cancelled.
      */
     public static OrderTrackingResponse toTracking(Order order) {
         OrderStatus status = order.getStatus();
@@ -104,6 +106,7 @@ public final class OrderMapper {
                 .steps(steps)
                 .estimatedDeliveryAt(estimateDeliveryAt(order))
                 .statusUpdatedAt(order.getUpdatedAt())
+                .deliveredAt(order.getDeliveredAt())
                 .restaurantName(order.getRestaurant().getName())
                 .itemCount(itemCount)
                 .total(order.getTotal())
@@ -153,13 +156,63 @@ public final class OrderMapper {
                         order.getDeliveryStreet(), order.getDeliveryCity(), order.getDeliveryPostalCode()))
                 .subtotal(order.getSubtotal())
                 .deliveryFee(order.getDeliveryFee())
-                .couponCode(order.getCouponCode())
-                .discount(order.getDiscount())
                 .total(order.getTotal())
                 .paymentMethod(order.getPaymentMethod())
                 .status(order.getStatus())
                 .createdAt(order.getCreatedAt())
                 .updatedAt(order.getUpdatedAt())
+                .deliveredAt(order.getDeliveredAt())
+                .deliveredBy(order.getDeliveredBy())
+                .sentToDeliveryAt(order.getSentToDeliveryAt())
+                .deliveryPersonName(order.getDeliveryPersonName())
+                .build();
+    }
+
+    /** The combined order+revenue payload of {@code POST .../orders/{id}/deliver} — see {@code OrderService#deliverOrder}. */
+    public static OrderDeliveryResponse toOrderDeliveryResponse(Order order, RevenueTransaction revenue) {
+        return OrderDeliveryResponse.builder()
+                .order(toOwnerResponse(order))
+                .revenue(RevenueResponse.builder()
+                        .amount(revenue.getAmount())
+                        .createdAt(revenue.getCreatedAt())
+                        .build())
+                .build();
+    }
+
+    /** One row of the delivery dashboard's orders table — see {@link DeliveryOrderResponse}. */
+    public static DeliveryOrderResponse toDeliveryOrderResponse(Order order) {
+        return DeliveryOrderResponse.builder()
+                .id(order.getId())
+                .orderNumber(order.getOrderNumber())
+                .customerName(order.getCustomer().getName())
+                .customerPhone(order.getCustomer().getPhone())
+                .deliveryAddress(AddressMapper.composeDetail(
+                        order.getDeliveryStreet(), order.getDeliveryCity(), order.getDeliveryPostalCode()))
+                .items(order.getItems().stream().map(OrderMapper::toItemResponse).toList())
+                .total(order.getTotal())
+                .status(order.getStatus())
+                .createdAt(order.getCreatedAt())
+                .sentToDeliveryAt(order.getSentToDeliveryAt())
+                .deliveryPersonName(order.getDeliveryPersonName())
+                .build();
+    }
+
+    /** The delivery dashboard's summary cards + orders table — see {@code OrderService#getDeliveryDashboard}. */
+    public static DeliveryDashboardResponse toDeliveryDashboard(List<Order> activeOrders, RevenueAggregate deliveredToday) {
+        BigDecimal activeTotalValue = activeOrders.stream()
+                .map(Order::getTotal)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        DeliveryDashboardSummaryResponse summary = DeliveryDashboardSummaryResponse.builder()
+                .activeCount(activeOrders.size())
+                .activeTotalValue(activeTotalValue)
+                .deliveredTodayCount(deliveredToday.orderCount())
+                .deliveredTodayRevenue(deliveredToday.totalRevenueOrZero())
+                .build();
+
+        return DeliveryDashboardResponse.builder()
+                .summary(summary)
+                .orders(activeOrders.stream().map(OrderMapper::toDeliveryOrderResponse).toList())
                 .build();
     }
 
@@ -190,10 +243,11 @@ public final class OrderMapper {
 
     private static int milestoneRank(OrderStatus status) {
         return switch (status) {
-            case NEW, CONFIRMED -> 0;
+            case CONFIRMED -> 0;
             case PREPARING -> 1;
-            case ON_THE_WAY -> 2;
-            case DELIVERED -> 3;
+            case READY_FOR_DELIVERY -> 2;
+            case OUT_FOR_DELIVERY -> 3;
+            case DELIVERED -> 4;
             case CANCELLED -> -1;
         };
     }

@@ -154,7 +154,6 @@ class AdminRestaurantControllerTest {
                 .name("Test Restaurant")
                 .cuisine("إيطالي")
                 .deliveryFee(BigDecimal.valueOf(15))
-                .minimumOrder(BigDecimal.valueOf(50))
                 .openTime(LocalTime.of(9, 0))
                 .closeTime(LocalTime.of(23, 0))
                 .openForOrders(true)

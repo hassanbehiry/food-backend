@@ -45,11 +45,8 @@ public class AdminUserController {
         return ResponseEntity.ok(adminUserService.listUsers(role, status, page, size));
     }
 
-    /** GET /api/v1/admin/users/{id} */
-    @GetMapping("/{id}")
-    public ResponseEntity<AdminUserResponse> getById(@PathVariable Long id) {
-        return ResponseEntity.ok(adminUserService.getUser(id));
-    }
+
+
 
     /** PATCH /api/v1/admin/users/{id}/status — body: {"status": "ACTIVE" | "SUSPENDED"}. */
     @PatchMapping("/{id}/status")

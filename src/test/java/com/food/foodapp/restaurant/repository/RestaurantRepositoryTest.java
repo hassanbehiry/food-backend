@@ -5,6 +5,7 @@ import com.food.foodapp.restaurant.entity.Restaurant;
 import com.food.foodapp.restaurant.entity.RestaurantApprovalStatus;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import com.food.foodapp.support.ClosedHoursFixture;
 import com.food.foodapp.support.RepositoryTest;
 import org.springframework.boot.jpa.test.autoconfigure.TestEntityManager;
 import org.springframework.data.domain.PageRequest;
@@ -153,7 +154,9 @@ class RestaurantRepositoryTest {
         restaurant.setEstimatedDeliveryMinMinutes(20);
         restaurant.setEstimatedDeliveryMaxMinutes(30);
         restaurant.setApprovalStatus(status);
-        restaurant.setOpenForOrders(open);
+        if (!open) {
+            ClosedHoursFixture.makeClosedRightNow(restaurant);
+        }
         restaurant.setCategories(categories);
         return restaurant;
     }

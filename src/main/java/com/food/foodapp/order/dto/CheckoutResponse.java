@@ -26,7 +26,5 @@ public class CheckoutResponse {
     private PaymentMethod paymentMethod;
     private BigDecimal subtotal;
     private BigDecimal deliveryFee;
-    private String couponCode;
-    private BigDecimal discount;
     private BigDecimal total;
 }

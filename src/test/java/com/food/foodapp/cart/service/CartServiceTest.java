@@ -99,7 +99,6 @@ class CartServiceTest {
         Restaurant restaurant = new Restaurant();
         restaurant.setId(5L);
         restaurant.setApprovalStatus(RestaurantApprovalStatus.SUSPENDED);
-        restaurant.setOpenForOrders(true);
         Cart cart = existingCart(restaurant);
         cart.setItems(new ArrayList<>(List.of(cartItem(cart, menuItem(10L, restaurant, true), 1))));
         when(cartRepository.findByCustomerIdWithItems(1L)).thenReturn(Optional.of(cart));
@@ -199,7 +198,6 @@ class CartServiceTest {
         Restaurant restaurant = new Restaurant();
         restaurant.setId(5L);
         restaurant.setApprovalStatus(RestaurantApprovalStatus.PENDING);
-        restaurant.setOpenForOrders(true);
         Cart cart = existingCart(null);
         stubForUpdate(cart);
         when(menuItemRepository.findById(10L)).thenReturn(Optional.of(menuItem(10L, restaurant, true)));
@@ -217,7 +215,6 @@ class CartServiceTest {
         Restaurant otherRestaurant = new Restaurant();
         otherRestaurant.setId(99L);
         otherRestaurant.setApprovalStatus(RestaurantApprovalStatus.APPROVED);
-        otherRestaurant.setOpenForOrders(true);
 
         Cart cart = existingCart(existingRestaurant);
         cart.setItems(new ArrayList<>(List.of(cartItem(cart, menuItem(10L, existingRestaurant, true), 1))));
@@ -352,7 +349,6 @@ class CartServiceTest {
         Restaurant restaurantB = new Restaurant();
         restaurantB.setId(99L);
         restaurantB.setApprovalStatus(RestaurantApprovalStatus.APPROVED);
-        restaurantB.setOpenForOrders(true);
         Cart cart = existingCart(null);
         stubForUpdate(cart);
         when(menuItemRepository.findAllByIdWithRestaurant(anyCollection()))
@@ -405,7 +401,6 @@ class CartServiceTest {
         restaurant.setId(5L);
         restaurant.setDeliveryFee(BigDecimal.valueOf(12));
         restaurant.setApprovalStatus(RestaurantApprovalStatus.APPROVED);
-        restaurant.setOpenForOrders(true);
         return restaurant;
     }
 

@@ -20,10 +20,8 @@ import lombok.Setter;
  * straight onto the order's flat {@code delivery_*} columns; it never creates a saved
  * {@code Address} row.
  * <p>
- * {@code couponCode} is optional and, like every other field here, re-validated from scratch by
- * both endpoints via {@code CouponService} — the discount it yields is never accepted from the
- * caller, only the code. There is deliberately no {@code items}/{@code subtotal}/{@code total}
- * field: the cart is server-authoritative and every amount is recomputed in {@code OrderService}.
+ * There is deliberately no {@code items}/{@code subtotal}/{@code total} field: the cart is
+ * server-authoritative and every amount is recomputed in {@code OrderService}.
  */
 @Getter
 @Setter
@@ -43,8 +41,6 @@ public class CheckoutRequest {
 
     @NotBlank(message = "paymentMethod is required")
     private String paymentMethod;
-
-    private String couponCode;
 
     /**
      * Exactly one delivery target: a saved {@code addressId}, or an inline address carrying at

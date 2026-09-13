@@ -165,7 +165,6 @@ class CartRepositoryTest {
         restaurant.setEstimatedDeliveryMinMinutes(20);
         restaurant.setEstimatedDeliveryMaxMinutes(30);
         restaurant.setApprovalStatus(RestaurantApprovalStatus.APPROVED);
-        restaurant.setOpenForOrders(true);
         entityManager.persist(restaurant);
         return restaurant;
     }

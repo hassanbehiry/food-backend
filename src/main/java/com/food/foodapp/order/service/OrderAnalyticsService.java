@@ -36,8 +36,8 @@ import java.util.stream.Collectors;
  * <p>
  * <b>Revenue recognition:</b> every revenue figure here — the overview KPI, its trend, and the
  * chart's daily bars and period totals — counts only {@link OrderStatus#DELIVERED} orders. An
- * order still in progress ({@code NEW}/{@code CONFIRMED}/{@code PREPARING}/{@code ON_THE_WAY})
- * hasn't actually earned the restaurant anything yet and can still be cancelled before delivery,
+ * order still {@code CONFIRMED} (in progress) hasn't actually earned the restaurant anything yet
+ * and can still be cancelled before delivery,
  * and a {@code CANCELLED} order never will; counting either would make "revenue" overstate money
  * the restaurant has actually been paid for. "Total orders" and "orders by status", by contrast,
  * count every status — they describe order *volume*, not money earned.

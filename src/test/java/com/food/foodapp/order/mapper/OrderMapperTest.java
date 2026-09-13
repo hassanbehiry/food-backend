@@ -52,8 +52,8 @@ class OrderMapperTest {
         item.setQuantity(2);
 
         CheckoutResponse response = OrderMapper.toCheckoutResponse(restaurant, List.of(item), address,
-                PaymentMethod.CASH_ON_DELIVERY, BigDecimal.valueOf(100), BigDecimal.valueOf(12), null,
-                BigDecimal.ZERO, BigDecimal.valueOf(112));
+                PaymentMethod.CASH_ON_DELIVERY, BigDecimal.valueOf(100), BigDecimal.valueOf(12),
+                BigDecimal.valueOf(112));
 
         assertThat(response.getRestaurantId()).isEqualTo(5L);
         assertThat(response.getAddressId()).isEqualTo(50L);
@@ -61,37 +61,7 @@ class OrderMapperTest {
         assertThat(response.getPaymentMethod()).isEqualTo(PaymentMethod.CASH_ON_DELIVERY);
         assertThat(response.getItems()).hasSize(1);
         assertThat(response.getItems().get(0).getLineTotal()).isEqualByComparingTo(BigDecimal.valueOf(100));
-        assertThat(response.getCouponCode()).isNull();
         assertThat(response.getTotal()).isEqualByComparingTo(BigDecimal.valueOf(112));
-    }
-
-    @Test
-    void toCheckoutResponse_echoesCouponCode_whenCouponApplied() {
-        Restaurant restaurant = new Restaurant();
-        restaurant.setId(5L);
-        restaurant.setName("Pizza Place");
-
-        Address address = new Address();
-        address.setId(50L);
-        address.setStreet("Street 1");
-        address.setCity("Cairo");
-
-        CartItem item = new CartItem();
-        item.setId(1L);
-        MenuItem menuItem = new MenuItem();
-        menuItem.setId(10L);
-        menuItem.setName("Pizza");
-        menuItem.setPrice(BigDecimal.valueOf(50));
-        item.setMenuItem(menuItem);
-        item.setQuantity(2);
-
-        CheckoutResponse response = OrderMapper.toCheckoutResponse(restaurant, List.of(item), address,
-                PaymentMethod.CASH_ON_DELIVERY, BigDecimal.valueOf(100), BigDecimal.valueOf(12), "SAVE10",
-                BigDecimal.TEN, BigDecimal.valueOf(102));
-
-        assertThat(response.getCouponCode()).isEqualTo("SAVE10");
-        assertThat(response.getDiscount()).isEqualByComparingTo(BigDecimal.TEN);
-        assertThat(response.getTotal()).isEqualByComparingTo(BigDecimal.valueOf(102));
     }
 
     @Test
@@ -108,11 +78,9 @@ class OrderMapperTest {
         order.setDeliveryCity("Cairo");
         order.setSubtotal(BigDecimal.valueOf(100));
         order.setDeliveryFee(BigDecimal.valueOf(12));
-        order.setCouponCode("SAVE10");
-        order.setDiscount(BigDecimal.TEN);
         order.setTotal(BigDecimal.valueOf(102));
         order.setPaymentMethod(PaymentMethod.CASH_ON_DELIVERY);
-        order.setStatus(OrderStatus.NEW);
+        order.setStatus(OrderStatus.CONFIRMED);
 
         OrderItem item = new OrderItem(order, 10L, "Pizza", "pizza.jpg", BigDecimal.valueOf(50), 2,
                 BigDecimal.valueOf(100));
@@ -127,9 +95,7 @@ class OrderMapperTest {
         assertThat(response.getItems().get(0).getName()).isEqualTo("Pizza");
         assertThat(response.getItems().get(0).getImg()).isEqualTo("pizza.jpg");
         assertThat(response.getItems().get(0).getPrice()).isEqualByComparingTo(BigDecimal.valueOf(50));
-        assertThat(response.getCouponCode()).isEqualTo("SAVE10");
-        assertThat(response.getDiscount()).isEqualByComparingTo(BigDecimal.TEN);
-        assertThat(response.getStatus()).isEqualTo(OrderStatus.NEW);
+        assertThat(response.getStatus()).isEqualTo(OrderStatus.CONFIRMED);
     }
 
     @Test
@@ -164,7 +130,7 @@ class OrderMapperTest {
         order.setId(700L);
         order.setOrderNumber("ORD-20260825-000001");
         order.setTotal(BigDecimal.valueOf(112));
-        order.setStatus(OrderStatus.NEW);
+        order.setStatus(OrderStatus.CONFIRMED);
         User customer = new User();
         customer.setName("Ali");
         order.setCustomer(customer);
@@ -191,10 +157,9 @@ class OrderMapperTest {
         order.setDeliveryCity("Cairo");
         order.setSubtotal(BigDecimal.valueOf(100));
         order.setDeliveryFee(BigDecimal.valueOf(12));
-        order.setDiscount(BigDecimal.ZERO);
         order.setTotal(BigDecimal.valueOf(112));
         order.setPaymentMethod(PaymentMethod.CASH_ON_DELIVERY);
-        order.setStatus(OrderStatus.NEW);
+        order.setStatus(OrderStatus.CONFIRMED);
         User customer = new User();
         customer.setName("Ali");
         order.setCustomer(customer);
@@ -218,7 +183,7 @@ class OrderMapperTest {
         restaurant.setId(5L);
         restaurant.setName("Pizza Place");
         OwnerOrderStatsResponse stats = OwnerOrderStatsResponse.builder()
-                .newCount(3).preparingCount(2).onTheWayCount(1).deliveredCount(10).totalCount(16)
+                .confirmedCount(3).deliveredCount(10).cancelledCount(3).totalCount(16)
                 .build();
         OwnerAnalyticsOverviewResponse overview = OwnerAnalyticsOverviewResponse.builder()
                 .totalOrders(42).totalOrdersTrendPercentage(BigDecimal.valueOf(12.5))
@@ -245,7 +210,7 @@ class OrderMapperTest {
     }
 
     @Test
-    void toTracking_newOrder_showsFirstStepAsCurrent_andComputesEta() {
+    void toTracking_confirmedOrder_showsFirstStepAsCurrent_andComputesEta() {
         Restaurant restaurant = new Restaurant();
         restaurant.setId(5L);
         restaurant.setEstimatedDeliveryMaxMinutes(45);
@@ -254,25 +219,34 @@ class OrderMapperTest {
         order.setId(700L);
         order.setOrderNumber("ORD-20260825-000001");
         order.setRestaurant(restaurant);
-        order.setStatus(OrderStatus.NEW);
+        order.setStatus(OrderStatus.CONFIRMED);
         order.setCreatedAt(LocalDateTime.of(2026, 8, 25, 12, 0));
         order.setUpdatedAt(LocalDateTime.of(2026, 8, 25, 12, 0));
 
         OrderTrackingResponse response = OrderMapper.toTracking(order);
 
         assertThat(response.getOrderId()).isEqualTo(700L);
-        assertThat(response.getStatus()).isEqualTo(OrderStatus.NEW);
+        assertThat(response.getStatus()).isEqualTo(OrderStatus.CONFIRMED);
         assertThat(response.getEstimatedDeliveryAt()).isEqualTo(LocalDateTime.of(2026, 8, 25, 12, 45));
-        assertThat(response.getSteps()).hasSize(4);
-        assertThat(response.getSteps().get(0).getStatus()).isEqualTo(OrderStatus.NEW);
+        assertThat(response.getSteps()).hasSize(5);
+        assertThat(response.getSteps().get(0).getStatus()).isEqualTo(OrderStatus.CONFIRMED);
         assertThat(response.getSteps().get(0).isCurrent()).isTrue();
         assertThat(response.getSteps().get(0).isCompleted()).isTrue();
+        assertThat(response.getSteps().get(1).getStatus()).isEqualTo(OrderStatus.PREPARING);
         assertThat(response.getSteps().get(1).isCompleted()).isFalse();
         assertThat(response.getSteps().get(1).isCurrent()).isFalse();
+        assertThat(response.getSteps().get(2).getStatus()).isEqualTo(OrderStatus.READY_FOR_DELIVERY);
+        assertThat(response.getSteps().get(2).isCompleted()).isFalse();
+        assertThat(response.getSteps().get(2).isCurrent()).isFalse();
+        assertThat(response.getSteps().get(3).getStatus()).isEqualTo(OrderStatus.OUT_FOR_DELIVERY);
+        assertThat(response.getSteps().get(3).isCompleted()).isFalse();
+        assertThat(response.getSteps().get(3).isCurrent()).isFalse();
+        assertThat(response.getSteps().get(4).isCompleted()).isFalse();
+        assertThat(response.getSteps().get(4).isCurrent()).isFalse();
     }
 
     @Test
-    void toTracking_confirmedOrder_isRenderedAsNewStepStillCurrent() {
+    void toTracking_outForDeliveryOrder_showsFourthStepAsCurrent() {
         Restaurant restaurant = new Restaurant();
         restaurant.setId(5L);
         restaurant.setEstimatedDeliveryMaxMinutes(45);
@@ -280,14 +254,19 @@ class OrderMapperTest {
         Order order = new Order();
         order.setId(700L);
         order.setRestaurant(restaurant);
-        order.setStatus(OrderStatus.CONFIRMED);
+        order.setStatus(OrderStatus.OUT_FOR_DELIVERY);
         order.setCreatedAt(LocalDateTime.of(2026, 8, 25, 12, 0));
 
         OrderTrackingResponse response = OrderMapper.toTracking(order);
 
-        assertThat(response.getSteps().get(0).getStatus()).isEqualTo(OrderStatus.NEW);
-        assertThat(response.getSteps().get(0).isCurrent()).isTrue();
-        assertThat(response.getSteps().get(1).isCurrent()).isFalse();
+        assertThat(response.getEstimatedDeliveryAt()).isNotNull();
+        assertThat(response.getSteps().get(0).isCompleted()).isTrue();
+        assertThat(response.getSteps().get(1).isCompleted()).isTrue();
+        assertThat(response.getSteps().get(2).isCompleted()).isTrue();
+        assertThat(response.getSteps().get(3).isCompleted()).isTrue();
+        assertThat(response.getSteps().get(3).isCurrent()).isTrue();
+        assertThat(response.getSteps().get(4).isCompleted()).isFalse();
+        assertThat(response.getSteps().get(4).isCurrent()).isFalse();
     }
 
     @Test
@@ -306,7 +285,7 @@ class OrderMapperTest {
 
         assertThat(response.getEstimatedDeliveryAt()).isNull();
         assertThat(response.getSteps()).allSatisfy(step -> assertThat(step.isCompleted()).isTrue());
-        assertThat(response.getSteps().get(3).isCurrent()).isTrue();
+        assertThat(response.getSteps().get(4).isCurrent()).isTrue();
     }
 
     @Test

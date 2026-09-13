@@ -29,15 +29,13 @@ public final class RestaurantMapper {
                 .cuisine(restaurant.getCuisine())
                 .logoUrl(restaurant.getLogoUrl())
                 .coverImageUrl(restaurant.getCoverImageUrl())
-                .ratingAverage(restaurant.getRatingAverage())
-                .reviewCount(restaurant.getReviewCount())
                 .deliveryFee(restaurant.getDeliveryFee())
                 .minimumOrder(restaurant.getMinimumOrder())
                 .estimatedDeliveryMinMinutes(restaurant.getEstimatedDeliveryMinMinutes())
                 .estimatedDeliveryMaxMinutes(restaurant.getEstimatedDeliveryMaxMinutes())
                 .estimatedDeliveryLabel(formatDeliveryLabel(restaurant))
                 .categoryIds(categoryIds)
-                .openForOrders(restaurant.isOpenForOrders())
+                .openForOrders(restaurant.isCurrentlyOpen())
                 .build();
     }
 
@@ -58,29 +56,35 @@ public final class RestaurantMapper {
                 .cuisine(restaurant.getCuisine())
                 .logoUrl(restaurant.getLogoUrl())
                 .coverImageUrl(restaurant.getCoverImageUrl())
-                .ratingAverage(restaurant.getRatingAverage())
-                .reviewCount(restaurant.getReviewCount())
                 .deliveryFee(restaurant.getDeliveryFee())
                 .minimumOrder(restaurant.getMinimumOrder())
                 .estimatedDeliveryMinMinutes(restaurant.getEstimatedDeliveryMinMinutes())
                 .estimatedDeliveryMaxMinutes(restaurant.getEstimatedDeliveryMaxMinutes())
                 .estimatedDeliveryLabel(formatDeliveryLabel(restaurant))
-                .openForOrders(restaurant.isOpenForOrders())
+                .openForOrders(restaurant.isCurrentlyOpen())
                 .categoryIds(categoryIds)
                 .categories(categories)
                 .build();
     }
 
     public static OwnerRestaurantResponse toOwnerResponse(Restaurant restaurant) {
+        CategoryResponse category = restaurant.getCategories().stream()
+                .min(Comparator.comparing(Category::getId))
+                .map(CategoryMapper::toResponse)
+                .orElse(null);
+
         return OwnerRestaurantResponse.builder()
                 .id(restaurant.getId())
                 .name(restaurant.getName())
                 .cuisine(restaurant.getCuisine())
+                .logoUrl(restaurant.getLogoUrl())
+                .coverImageUrl(restaurant.getCoverImageUrl())
                 .deliveryFee(restaurant.getDeliveryFee())
                 .minimumOrder(restaurant.getMinimumOrder())
                 .openTime(restaurant.getOpenTime())
                 .closeTime(restaurant.getCloseTime())
-                .openForOrders(restaurant.isOpenForOrders())
+                .category(category)
+                .openForOrders(restaurant.isCurrentlyOpen())
                 .build();
     }
 
@@ -90,10 +94,9 @@ public final class RestaurantMapper {
                 .name(restaurant.getName())
                 .cuisine(restaurant.getCuisine())
                 .deliveryFee(restaurant.getDeliveryFee())
-                .minimumOrder(restaurant.getMinimumOrder())
                 .openTime(restaurant.getOpenTime())
                 .closeTime(restaurant.getCloseTime())
-                .openForOrders(restaurant.isOpenForOrders())
+                .openForOrders(restaurant.isCurrentlyOpen())
                 .approvalStatus(restaurant.getApprovalStatus())
                 .createdAt(restaurant.getCreatedAt())
                 .updatedAt(restaurant.getUpdatedAt())

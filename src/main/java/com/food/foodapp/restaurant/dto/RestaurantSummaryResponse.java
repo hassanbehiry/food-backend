@@ -16,8 +16,6 @@ public class RestaurantSummaryResponse {
     private String cuisine;
     private String logoUrl;
     private String coverImageUrl;
-    private BigDecimal ratingAverage;
-    private int reviewCount;
     private BigDecimal deliveryFee;
     private BigDecimal minimumOrder;
     private int estimatedDeliveryMinMinutes;

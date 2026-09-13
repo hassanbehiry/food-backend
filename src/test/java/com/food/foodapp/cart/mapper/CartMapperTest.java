@@ -32,7 +32,6 @@ class CartMapperTest {
 
         assertThat(response.getSubtotal()).isEqualByComparingTo(BigDecimal.valueOf(130)); // (50*2)+(10*3)
         assertThat(response.getDeliveryFee()).isEqualByComparingTo(BigDecimal.valueOf(12));
-        assertThat(response.getDiscount()).isEqualByComparingTo(BigDecimal.ZERO);
         assertThat(response.getTotal()).isEqualByComparingTo(BigDecimal.valueOf(142));
         assertThat(response.getRestaurantId()).isEqualTo(1L);
     }

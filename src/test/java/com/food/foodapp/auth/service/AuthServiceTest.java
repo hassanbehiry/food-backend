@@ -8,6 +8,8 @@ import com.food.foodapp.auth.entity.User;
 import com.food.foodapp.auth.entity.UserStatus;
 import com.food.foodapp.auth.jwt.JwtUtil;
 import com.food.foodapp.auth.repository.UserRepository;
+import com.food.foodapp.category.entity.Category;
+import com.food.foodapp.category.repository.CategoryRepository;
 import com.food.foodapp.common.exception.AccountSuspendedException;
 import com.food.foodapp.common.exception.DuplicateEmailException;
 import com.food.foodapp.common.exception.InvalidCredentialsException;
@@ -51,12 +53,15 @@ class AuthServiceTest {
     @Mock
     private RestaurantRepository restaurantRepository;
 
+    @Mock
+    private CategoryRepository categoryRepository;
+
     private AuthService authService;
 
     @BeforeEach
     void setUp() {
         authService = new AuthService(
-                userRepository, passwordEncoder, jwtUtil, platformSettingsService, restaurantRepository);
+                userRepository, passwordEncoder, jwtUtil, platformSettingsService, restaurantRepository, categoryRepository);
     }
 
     @Test
@@ -74,9 +79,13 @@ class AuthServiceTest {
     void register_createsOwnerAndPendingRestaurant_whenRegistrationAllowed() {
         when(platformSettingsService.isRestaurantRegistrationAllowed()).thenReturn(true);
         when(userRepository.existsByEmail("ali@example.com")).thenReturn(false);
+        Category pizza = new Category();
+        pizza.setId(1L);
+        when(categoryRepository.findById(1L)).thenReturn(Optional.of(pizza));
 
         RegisterRequest request = registerRequest(Role.OWNER);
         request.setRestaurantName("Ali's Kitchen");
+        request.setCategoryId(1L);
 
         AuthResponse response = authService.register(request);
 

@@ -40,7 +40,12 @@ public class Category {
     @Column(nullable = false, unique = true, length = 100)
     private String slug;
 
-    @Column(nullable = false, length = 255)
+    /**
+     * Either a FontAwesome solid-style class token (e.g. {@code fa-pizza-slice}) or an
+     * {@code http(s)://} image URL — the frontend renders whichever it is. Widened from 255 to
+     * 500 in V15 to comfortably hold a URL, matching {@code Restaurant.logoUrl}/{@code coverImageUrl}.
+     */
+    @Column(nullable = false, length = 500)
     private String icon;
 
     @CreationTimestamp

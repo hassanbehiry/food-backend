@@ -135,15 +135,15 @@ class OrderRepositoryTest {
         User customer = persistUser("owner-list-status-" + System.nanoTime() + "@example.com");
         Restaurant restaurant = persistRestaurant("Pizza Place");
         persistOrder(customer, restaurant);
-        Order preparingOrder = persistOrder(customer, restaurant);
-        preparingOrder.setStatus(OrderStatus.PREPARING);
+        Order deliveredOrder = persistOrder(customer, restaurant);
+        deliveredOrder.setStatus(OrderStatus.DELIVERED);
         entityManager.flush();
         entityManager.clear();
 
-        Page<Order> preparingOnly = orderRepository.findByRestaurantIdAndOptionalStatus(
-                restaurant.getId(), OrderStatus.PREPARING, PageRequest.of(0, 20));
+        Page<Order> deliveredOnly = orderRepository.findByRestaurantIdAndOptionalStatus(
+                restaurant.getId(), OrderStatus.DELIVERED, PageRequest.of(0, 20));
 
-        assertThat(preparingOnly.getContent()).extracting(Order::getId).containsExactly(preparingOrder.getId());
+        assertThat(deliveredOnly.getContent()).extracting(Order::getId).containsExactly(deliveredOrder.getId());
     }
 
     @Test
@@ -182,14 +182,14 @@ class OrderRepositoryTest {
         Restaurant restaurant = persistRestaurant("Pizza Place");
         Restaurant otherRestaurant = persistRestaurant("Burger Place");
         persistOrder(customer, restaurant);
-        Order preparingOrder = persistOrder(customer, restaurant);
-        preparingOrder.setStatus(OrderStatus.PREPARING);
+        Order deliveredOrder = persistOrder(customer, restaurant);
+        deliveredOrder.setStatus(OrderStatus.DELIVERED);
         persistOrder(customer, otherRestaurant);
         entityManager.flush();
 
         assertThat(orderRepository.countByRestaurantId(restaurant.getId())).isEqualTo(2);
-        assertThat(orderRepository.countByRestaurantIdAndStatus(restaurant.getId(), OrderStatus.NEW)).isEqualTo(1);
-        assertThat(orderRepository.countByRestaurantIdAndStatus(restaurant.getId(), OrderStatus.PREPARING))
+        assertThat(orderRepository.countByRestaurantIdAndStatus(restaurant.getId(), OrderStatus.CONFIRMED)).isEqualTo(1);
+        assertThat(orderRepository.countByRestaurantIdAndStatus(restaurant.getId(), OrderStatus.DELIVERED))
                 .isEqualTo(1);
     }
 
@@ -343,7 +343,7 @@ class OrderRepositoryTest {
                 LocalDateTime.of(2026, 8, 1, 0, 0), LocalDateTime.of(2026, 9, 1, 0, 0));
 
         assertThat(result).extracting(OrderStatusCount::status, OrderStatusCount::count)
-                .containsExactlyInAnyOrder(tuple(OrderStatus.NEW, 1L), tuple(OrderStatus.DELIVERED, 1L));
+                .containsExactlyInAnyOrder(tuple(OrderStatus.CONFIRMED, 1L), tuple(OrderStatus.DELIVERED, 1L));
     }
 
     @Test
@@ -483,7 +483,7 @@ class OrderRepositoryTest {
                 restaurant.getId(), LocalDateTime.of(2026, 8, 1, 0, 0), LocalDateTime.of(2026, 9, 1, 0, 0));
 
         assertThat(result).extracting(OrderStatusCount::status, OrderStatusCount::count)
-                .containsExactlyInAnyOrder(tuple(OrderStatus.NEW, 1L), tuple(OrderStatus.DELIVERED, 2L));
+                .containsExactlyInAnyOrder(tuple(OrderStatus.CONFIRMED, 1L), tuple(OrderStatus.DELIVERED, 2L));
     }
 
     @Test
@@ -518,6 +518,54 @@ class OrderRepositoryTest {
         assertThat(result.get(0).total()).isEqualByComparingTo(BigDecimal.valueOf(110));
     }
 
+    @Test
+    void findByIdAndCustomerIdForUpdate_isScopedToCustomer_likeItsFetchJoinCounterpart() {
+        User customer = persistUser("lock-customer-" + System.nanoTime() + "@example.com");
+        User otherCustomer = persistUser("lock-customer-other-" + System.nanoTime() + "@example.com");
+        Restaurant restaurant = persistRestaurant("Pizza Place");
+        Order order = persistOrder(customer, restaurant);
+
+        assertThat(orderRepository.findByIdAndCustomerIdForUpdate(order.getId(), customer.getId())).isPresent();
+        assertThat(orderRepository.findByIdAndCustomerIdForUpdate(order.getId(), otherCustomer.getId())).isEmpty();
+    }
+
+    @Test
+    void findByIdAndRestaurantIdForUpdate_isScopedToRestaurant_likeItsFetchJoinCounterpart() {
+        User customer = persistUser("lock-restaurant-" + System.nanoTime() + "@example.com");
+        Restaurant restaurant = persistRestaurant("Pizza Place");
+        Restaurant otherRestaurant = persistRestaurant("Burger Place");
+        Order order = persistOrder(customer, restaurant);
+
+        assertThat(orderRepository.findByIdAndRestaurantIdForUpdate(order.getId(), restaurant.getId())).isPresent();
+        assertThat(orderRepository.findByIdAndRestaurantIdForUpdate(order.getId(), otherRestaurant.getId())).isEmpty();
+    }
+
+    @Test
+    void findByRestaurantIdAndStatusWithItems_returnsOnlyThatStatusAndRestaurant_withItemsAndCustomerLoaded() {
+        User customer = persistUser("delivery-queue-" + System.nanoTime() + "@example.com");
+        Restaurant restaurant = persistRestaurant("Pizza Place");
+        Restaurant otherRestaurant = persistRestaurant("Burger Place");
+        MenuCategory category = persistCategory(restaurant);
+        MenuItem menuItem = persistMenuItem(restaurant, category, "Pizza", BigDecimal.valueOf(50));
+
+        Order outForDelivery = persistOrder(customer, restaurant);
+        outForDelivery.setStatus(OrderStatus.OUT_FOR_DELIVERY);
+        entityManager.persist(new OrderItem(outForDelivery, menuItem.getId(), menuItem.getName(), null,
+                menuItem.getPrice(), 2, menuItem.getPrice().multiply(BigDecimal.valueOf(2))));
+        persistOrder(customer, restaurant);
+        Order outForDeliveryElsewhere = persistOrder(customer, otherRestaurant);
+        outForDeliveryElsewhere.setStatus(OrderStatus.OUT_FOR_DELIVERY);
+        entityManager.flush();
+        entityManager.clear();
+
+        List<Order> result = orderRepository.findByRestaurantIdAndStatusWithItems(
+                restaurant.getId(), OrderStatus.OUT_FOR_DELIVERY);
+
+        assertThat(result).extracting(Order::getId).containsExactly(outForDelivery.getId());
+        assertThat(result.get(0).getCustomer().getName()).isEqualTo("Order Owner");
+        assertThat(result.get(0).getItems()).hasSize(1);
+    }
+
     /** {@code createdAt} is {@code @CreationTimestamp}-generated, so date-range tests must overwrite it directly. */
     private void setCreatedAt(Order order, LocalDateTime createdAt) {
         entityManager.getEntityManager()
@@ -546,7 +594,6 @@ class OrderRepositoryTest {
         restaurant.setEstimatedDeliveryMinMinutes(20);
         restaurant.setEstimatedDeliveryMaxMinutes(30);
         restaurant.setApprovalStatus(RestaurantApprovalStatus.APPROVED);
-        restaurant.setOpenForOrders(true);
         entityManager.persist(restaurant);
         return restaurant;
     }
@@ -582,10 +629,9 @@ class OrderRepositoryTest {
         order.setDeliveryCity("Cairo");
         order.setSubtotal(BigDecimal.valueOf(100));
         order.setDeliveryFee(BigDecimal.valueOf(10));
-        order.setDiscount(BigDecimal.ZERO);
         order.setTotal(BigDecimal.valueOf(110));
         order.setPaymentMethod(PaymentMethod.CASH_ON_DELIVERY);
-        order.setStatus(OrderStatus.NEW);
+        order.setStatus(OrderStatus.CONFIRMED);
         entityManager.persist(order);
         entityManager.flush();
         return order;
