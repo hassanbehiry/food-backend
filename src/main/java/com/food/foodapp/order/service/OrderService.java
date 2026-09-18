@@ -20,12 +20,11 @@ import com.food.foodapp.common.exception.MenuItemUnavailableException;
 import com.food.foodapp.common.exception.OrderNotFoundException;
 import com.food.foodapp.common.exception.RestaurantNotFoundException;
 import com.food.foodapp.common.exception.UnauthenticatedException;
-import com.food.foodapp.coupon.entity.Coupon;
-import com.food.foodapp.coupon.service.CouponService;
-import com.food.foodapp.coupon.service.CouponService.CouponApplication;
 import com.food.foodapp.menu.entity.MenuItem;
 import com.food.foodapp.order.dto.CheckoutRequest;
 import com.food.foodapp.order.dto.CheckoutResponse;
+import com.food.foodapp.order.dto.DeliveryDashboardResponse;
+import com.food.foodapp.order.dto.OrderDeliveryResponse;
 import com.food.foodapp.order.dto.OrderListResponse;
 import com.food.foodapp.order.dto.OrderResponse;
 import com.food.foodapp.order.dto.OrderSummaryResponse;
@@ -37,19 +36,25 @@ import com.food.foodapp.order.dto.OwnerOrderResponse;
 import com.food.foodapp.order.dto.OwnerOrderStatsResponse;
 import com.food.foodapp.order.dto.OwnerOrderSummaryResponse;
 import com.food.foodapp.order.dto.OwnerRevenueAnalyticsResponse;
+import com.food.foodapp.order.entity.DeliveryConfirmedBy;
 import com.food.foodapp.order.entity.Order;
 import com.food.foodapp.order.entity.OrderItem;
 import com.food.foodapp.order.entity.OrderStatus;
 import com.food.foodapp.order.entity.PaymentMethod;
+import com.food.foodapp.order.entity.RevenueTransaction;
+import com.food.foodapp.order.entity.RevenueTransactionType;
 import com.food.foodapp.order.mapper.OrderMapper;
 import com.food.foodapp.order.repository.OrderItemCount;
 import com.food.foodapp.order.repository.OrderRepository;
+import com.food.foodapp.order.repository.RevenueAggregate;
+import com.food.foodapp.order.repository.RevenueTransactionRepository;
 import com.food.foodapp.restaurant.entity.Restaurant;
 import com.food.foodapp.restaurant.repository.RestaurantRepository;
 import com.food.foodapp.restaurant.service.RestaurantOwnershipGuard;
 import com.food.foodapp.restaurant.service.RestaurantService;
 import com.food.foodapp.settings.service.PlatformSettingsService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -85,33 +90,35 @@ import java.util.stream.Collectors;
  * concurrent cart mutation would — by the time the second request acquires it, the first has
  * already committed the order and emptied the cart, so the second sees an empty cart and fails
  * with {@link CartEmptyException} instead of creating a second order.
- * <p>
- * When {@link CheckoutRequest#getCouponCode()} is set, {@link #placeOrder} records the redemption
- * via {@code CouponService#recordUsage} right after the order is saved, in the same transaction —
- * that call takes its own row lock on the coupon (not the cart lock above) so two different
- * customers racing to redeem the last remaining use of a limited coupon can't both succeed.
  */
 @Service
 @RequiredArgsConstructor
 public class OrderService {
 
     /**
-     * Statuses an owner may explicitly request via {@link #updateOrderStatus}. {@code NEW} is
-     * the only-ever-initial status and {@code CONFIRMED} is an internal transition not exposed as
-     * its own dashboard tab (see {@link OrderStatus}), so neither is a valid explicit target here.
+     * Statuses an owner may explicitly request via {@link #updateOrderStatus}: the kitchen
+     * progression ({@code PREPARING}, {@code READY_FOR_DELIVERY}) and cancellation. {@code
+     * CONFIRMED} is the only-ever-initial status (see {@link OrderStatus}), so it is never a valid
+     * explicit target. {@code OUT_FOR_DELIVERY} and {@code DELIVERED} are both excluded too, but for
+     * a different reason than {@code CONFIRMED}: each has its own dedicated action with side effects
+     * this generic status update doesn't perform — dispatch stamps {@code sentToDeliveryAt} and an
+     * optional courier name (see {@link #sendToDelivery}), and delivery confirmation stamps {@code
+     * deliveredAt}/{@code deliveredBy} and atomically recognizes revenue (see {@link #deliverOrder}
+     * and {@link #confirmDelivery}). Routing those two through this method would let either happen
+     * without its required side effects.
      */
     private static final Set<OrderStatus> OWNER_REQUESTABLE_STATUSES =
-            Set.of(OrderStatus.PREPARING, OrderStatus.ON_THE_WAY, OrderStatus.DELIVERED, OrderStatus.CANCELLED);
+            Set.of(OrderStatus.PREPARING, OrderStatus.READY_FOR_DELIVERY, OrderStatus.CANCELLED);
 
     /**
-     * Statuses an owner may filter the order list by — exactly the owner dashboard's tabs besides
-     * "all" (see the task's canonical tab set). {@code CONFIRMED} has no tab of its own (it's an
-     * internal, effectively-instantaneous transition — see {@link OrderStatus}) and neither does
-     * {@code CANCELLED}; a {@code null}/absent filter (the "all" tab) still returns every status,
-     * including those two.
+     * Statuses an owner may filter the order list by. Unlike {@link #OWNER_REQUESTABLE_STATUSES},
+     * every {@link OrderStatus} value is a legal filter here — there is no internal, non-resting
+     * status to exclude (contrast {@link #resolveCustomerStatusFilter}, which is equally
+     * permissive for the same reason).
      */
     private static final Set<OrderStatus> OWNER_LISTABLE_STATUSES =
-            Set.of(OrderStatus.NEW, OrderStatus.PREPARING, OrderStatus.ON_THE_WAY, OrderStatus.DELIVERED);
+            Set.of(OrderStatus.CONFIRMED, OrderStatus.PREPARING, OrderStatus.READY_FOR_DELIVERY,
+                    OrderStatus.OUT_FOR_DELIVERY, OrderStatus.DELIVERED, OrderStatus.CANCELLED);
 
     private static final int MAX_PAGE_SIZE = 50;
     private static final int DASHBOARD_RECENT_ORDERS_LIMIT = 5;
@@ -129,8 +136,8 @@ public class OrderService {
     private final UserContext userContext;
     private final RestaurantOwnershipGuard ownershipGuard;
     private final OrderAnalyticsService orderAnalyticsService;
-    private final CouponService couponService;
     private final PlatformSettingsService platformSettingsService;
+    private final RevenueTransactionRepository revenueTransactionRepository;
 
     @Transactional(readOnly = true)
     public CheckoutResponse previewCheckout(CheckoutRequest request) {
@@ -140,7 +147,7 @@ public class OrderService {
         OrderComputation computation = computeOrder(request, cart, customerId);
         return OrderMapper.toCheckoutResponse(computation.restaurant(), computation.items(), computation.address(),
                 computation.paymentMethod(), computation.subtotal(), computation.deliveryFee(),
-                computation.couponCode(), computation.discount(), computation.total());
+                computation.total());
     }
 
     @Transactional
@@ -152,9 +159,6 @@ public class OrderService {
         Order order = buildOrder(computation, customerId);
         Order saved = orderRepository.save(order);
 
-        if (computation.coupon() != null) {
-            couponService.recordUsage(computation.coupon(), saved);
-        }
         clearCart(cart);
 
         return OrderMapper.toResponse(saved);
@@ -218,13 +222,177 @@ public class OrderService {
                 .build();
     }
 
+    /**
+     * A customer may only cancel an order while it is still {@code CONFIRMED} — once the
+     * restaurant has moved it to {@code PREPARING} (or any later status), cancellation is refused
+     * here even though {@link OrderStatus#canTransitionTo} still allows {@code PREPARING} and
+     * {@code READY_FOR_DELIVERY} to reach {@code CANCELLED}; that broader table is what the
+     * restaurant owner's own cancellation path ({@link #updateOrderStatus}) still relies on, so
+     * this narrower rule is enforced here rather than in the shared transition table.
+     */
     @Transactional
     public OrderResponse cancelOrder(Long orderId) {
         Long customerId = userContext.getCurrentUserId();
         Order order = requireOwnedOrder(orderId, customerId);
 
+        if (order.getStatus() != OrderStatus.CONFIRMED) {
+            throw new InvalidOrderStatusTransitionException(
+                    "Order " + order.getId() + " cannot be cancelled after preparation has started");
+        }
+
         transitionStatus(order, OrderStatus.CANCELLED);
         return OrderMapper.toResponse(order);
+    }
+
+    /**
+     * PUT /orders/{id}/confirm-delivery — the customer's own acknowledgement that an
+     * {@code OUT_FOR_DELIVERY} order has actually arrived. Scoped to the caller via
+     * {@link OrderRepository#findByIdAndCustomerIdForUpdate} the same way {@link #requireOwnedOrder}
+     * scopes every other customer-facing lookup — an order that exists but belongs to another
+     * customer is indistinguishable from one that doesn't exist at all (404, not 403) — but this one
+     * additionally takes a {@code PESSIMISTIC_WRITE} row lock: since {@link #deliverOrder} gives the
+     * restaurant an independent path to the same {@code DELIVERED} target, the lock is what
+     * guarantees the two can never both "win" against a concurrent call on the same order (see
+     * {@link OrderRepository#findByIdAndCustomerIdForUpdate}). {@link #transitionStatus} then
+     * enforces both "must currently be {@code OUT_FOR_DELIVERY}" and "cannot already be {@code
+     * DELIVERED}" via the single transition table in {@link OrderStatus} — there is no separate
+     * re-check for either rule here.
+     * <p>
+     * The status flip and the {@code deliveredAt}/{@code deliveredBy} fields are written in this one
+     * {@code @Transactional} method, so they can never disagree. No separate "add to the owner's
+     * revenue" step exists here — unlike {@link #deliverOrder}, this path does not itself write a
+     * {@link RevenueTransaction} row, but revenue is still recognized correctly either way:
+     * {@code OrderAnalyticsService}/the owner dashboard compute revenue on demand as a live
+     * {@code SUM} over {@code DELIVERED} orders (see {@code OrderAnalyticsService}'s class javadoc),
+     * so the instant this transaction commits, every subsequent read of the owner's dashboard or
+     * revenue analytics already reflects this order's total — counted exactly once, since a second
+     * confirmation attempt (from either path) is rejected before ever reaching here.
+     */
+    @Transactional
+    public OrderResponse confirmDelivery(Long orderId) {
+        Long customerId = userContext.getCurrentUserId();
+        Order order = orderRepository.findByIdAndCustomerIdForUpdate(orderId, customerId)
+                .orElseThrow(() -> new OrderNotFoundException("Order not found: " + orderId));
+
+        transitionStatus(order, OrderStatus.DELIVERED, () -> {
+            order.setDeliveredAt(LocalDateTime.now());
+            order.setDeliveredBy(DeliveryConfirmedBy.CUSTOMER);
+        });
+
+        return OrderMapper.toResponse(order);
+    }
+
+    /**
+     * POST /owner/restaurants/{restaurantId}/orders/{orderId}/send-to-delivery — the restaurant
+     * dispatching a {@code READY_FOR_DELIVERY} order to a courier. Stamps {@code sentToDeliveryAt}
+     * and, if supplied, {@code deliveryPersonName} in the same write as the {@code
+     * OUT_FOR_DELIVERY} status flip, via the same {@link #transitionStatus} choke point every other
+     * status change routes through — an order that isn't currently {@code READY_FOR_DELIVERY}
+     * (including one already dispatched) is rejected by {@link OrderStatus#canTransitionTo} before
+     * either field is touched.
+     * <p>
+     * Takes the same {@code PESSIMISTIC_WRITE} lock {@link #deliverOrder} does, via
+     * {@link OrderRepository#findByIdAndRestaurantIdForUpdate} — not strictly required for
+     * correctness here (dispatch has no revenue side effect to protect), but keeps every owner-side
+     * order mutation that isn't the general {@link #updateOrderStatus} on the same locking
+     * convention.
+     */
+    @Transactional
+    public OrderResponse sendToDelivery(Long restaurantId, Long orderId, String deliveryPersonName) {
+        ownershipGuard.requireOwnedRestaurant(restaurantId);
+        Order order = orderRepository.findByIdAndRestaurantIdForUpdate(orderId, restaurantId)
+                .orElseThrow(() -> new OrderNotFoundException("Order not found: " + orderId));
+
+        transitionStatus(order, OrderStatus.OUT_FOR_DELIVERY, () -> {
+            order.setSentToDeliveryAt(LocalDateTime.now());
+            String trimmed = trimToNull(deliveryPersonName);
+            if (trimmed != null) {
+                order.setDeliveryPersonName(trimmed);
+            }
+        });
+
+        return OrderMapper.toResponse(order);
+    }
+
+    /**
+     * POST /owner/restaurants/{restaurantId}/orders/{orderId}/deliver — the restaurant/delivery
+     * side confirming an {@code OUT_FOR_DELIVERY} order has been handed to the customer. This is the
+     * restaurant-driven counterpart to the customer's own {@link #confirmDelivery}: both reach the
+     * same terminal {@code DELIVERED} status through the same {@link OrderStatus} transition table,
+     * so whichever call lands first wins and the other is rejected as an illegal transition
+     * ({@code 409}, via {@link InvalidOrderStatusTransitionException}) — there is no way for both to
+     * independently succeed against the same order.
+     * <p>
+     * <b>Atomicity and revenue recognition:</b> the status flip (plus {@code deliveredAt}/{@code
+     * deliveredBy}) and the {@link RevenueTransaction} insert happen in this one
+     * {@code @Transactional} method, so they always commit or roll back together — a failure
+     * writing the revenue row (including the database rejecting a duplicate {@code order_id}) rolls
+     * back the status change too, and vice versa. The order row is read with
+     * {@link OrderRepository#findByIdAndRestaurantIdForUpdate}'s {@code PESSIMISTIC_WRITE} lock,
+     * which is what actually prevents two concurrent calls (from either this method or
+     * {@link #confirmDelivery}) from both reading {@code OUT_FOR_DELIVERY} and both attempting to
+     * recognize revenue; the {@code UNIQUE(order_id)} database constraint on {@code
+     * revenue_transactions} (see {@link RevenueTransaction}) is the defense-in-depth backstop behind
+     * that lock, translated here into the same {@code 409} rather than a raw {@code 500}.
+     *
+     * @throws com.food.foodapp.common.exception.OrderNotFoundException      404 — no such order for this restaurant
+     * @throws com.food.foodapp.common.exception.OwnerAccessDeniedException  403 — caller does not own {@code restaurantId}
+     * @throws InvalidOrderStatusTransitionException                        409 — order is not currently {@code OUT_FOR_DELIVERY} (including if it was already delivered)
+     */
+    @Transactional
+    public OrderDeliveryResponse deliverOrder(Long restaurantId, Long orderId) {
+        ownershipGuard.requireOwnedRestaurant(restaurantId);
+        Order order = orderRepository.findByIdAndRestaurantIdForUpdate(orderId, restaurantId)
+                .orElseThrow(() -> new OrderNotFoundException("Order not found: " + orderId));
+
+        transitionStatus(order, OrderStatus.DELIVERED, () -> {
+            order.setDeliveredAt(LocalDateTime.now());
+            order.setDeliveredBy(DeliveryConfirmedBy.OWNER);
+        });
+
+        RevenueTransaction revenue = recordRevenue(order);
+        return OrderMapper.toOrderDeliveryResponse(order, revenue);
+    }
+
+    /**
+     * Writes the one {@link RevenueTransaction} row for a just-delivered order.
+     * {@code saveAndFlush} (rather than {@code save}) forces the {@code UNIQUE(order_id)}
+     * constraint to be checked synchronously, inside {@link #deliverOrder}, so a violation surfaces
+     * here as a clean {@code 409} instead of an opaque failure at eventual transaction-commit time.
+     */
+    private RevenueTransaction recordRevenue(Order order) {
+        RevenueTransaction revenue = new RevenueTransaction();
+        revenue.setOrder(order);
+        revenue.setRestaurant(order.getRestaurant());
+        revenue.setAmount(order.getTotal());
+        revenue.setType(RevenueTransactionType.ORDER_PAYMENT);
+        try {
+            return revenueTransactionRepository.saveAndFlush(revenue);
+        } catch (DataIntegrityViolationException e) {
+            throw new InvalidOrderStatusTransitionException(
+                    "Order " + order.getId() + " has already been delivered");
+        }
+    }
+
+    /**
+     * GET /owner/restaurants/{restaurantId}/orders/delivery-dashboard — the owner dashboard's
+     * Delivery Orders section: the four summary KPI cards plus the operational queue of every order
+     * currently {@code OUT_FOR_DELIVERY}. {@code deliveredTodayCount}/{@code deliveredTodayRevenue}
+     * reuse the exact same {@code SUM(total) WHERE status = DELIVERED} accounting
+     * {@code OrderAnalyticsService} uses everywhere else, scoped to the server's current calendar
+     * day, so this can never disagree with the rest of the dashboard about what counts as revenue.
+     */
+    @Transactional(readOnly = true)
+    public DeliveryDashboardResponse getDeliveryDashboard(Long restaurantId) {
+        ownershipGuard.requireOwnedRestaurant(restaurantId);
+        List<Order> activeOrders =
+                orderRepository.findByRestaurantIdAndStatusWithItems(restaurantId, OrderStatus.OUT_FOR_DELIVERY);
+
+        LocalDate today = LocalDate.now();
+        RevenueAggregate deliveredToday = orderRepository.sumRevenueByRestaurantAndStatusInRange(
+                restaurantId, OrderStatus.DELIVERED, today.atStartOfDay(), today.plusDays(1).atStartOfDay());
+
+        return OrderMapper.toDeliveryDashboard(activeOrders, deliveredToday);
     }
 
     /** GET /orders/{id}/track — always reads live persisted status, never a cached/echoed value. */
@@ -243,12 +411,6 @@ public class OrderService {
      * Authorized by {@code RestaurantOwnershipGuard.requireOwnedRestaurant(restaurantId)} at the
      * top of the method — a caller who is not the restaurant's owner gets {@code 403} before any
      * order is loaded, and an anonymous caller {@code 401} at the filter chain.
-     * <p>
-     * When a {@code NEW} order is asked to move straight to {@code PREPARING}, this advances it
-     * through {@code CONFIRMED} first, in the same transaction: the owner dashboard has only one
-     * action to take an order out of "New", so accepting it and starting to prepare it are the
-     * same request from the caller's point of view even though the state machine still passes
-     * through the intermediate status.
      */
     @Transactional
     public OrderResponse updateOrderStatus(Long restaurantId, Long orderId, String rawStatus) {
@@ -257,9 +419,6 @@ public class OrderService {
                 .orElseThrow(() -> new OrderNotFoundException("Order not found: " + orderId));
         OrderStatus target = resolveOwnerTargetStatus(rawStatus);
 
-        if (order.getStatus() == OrderStatus.NEW && target == OrderStatus.PREPARING) {
-            transitionStatus(order, OrderStatus.CONFIRMED);
-        }
         transitionStatus(order, target);
 
         return OrderMapper.toResponse(order);
@@ -337,10 +496,9 @@ public class OrderService {
         Long restaurantId = restaurant.getId();
 
         OwnerOrderStatsResponse stats = OwnerOrderStatsResponse.builder()
-                .newCount(orderRepository.countByRestaurantIdAndStatus(restaurantId, OrderStatus.NEW))
-                .preparingCount(orderRepository.countByRestaurantIdAndStatus(restaurantId, OrderStatus.PREPARING))
-                .onTheWayCount(orderRepository.countByRestaurantIdAndStatus(restaurantId, OrderStatus.ON_THE_WAY))
+                .confirmedCount(orderRepository.countByRestaurantIdAndStatus(restaurantId, OrderStatus.CONFIRMED))
                 .deliveredCount(orderRepository.countByRestaurantIdAndStatus(restaurantId, OrderStatus.DELIVERED))
+                .cancelledCount(orderRepository.countByRestaurantIdAndStatus(restaurantId, OrderStatus.CANCELLED))
                 .totalCount(orderRepository.countByRestaurantId(restaurantId))
                 .build();
 
@@ -432,10 +590,23 @@ public class OrderService {
      * in {@link OrderStatus} are enforced in one place regardless of who initiates the change.
      */
     private void transitionStatus(Order order, OrderStatus target) {
+        transitionStatus(order, target, () -> { });
+    }
+
+    /**
+     * Same as {@link #transitionStatus(Order, OrderStatus)}, plus a hook run only once the
+     * transition is confirmed legal and only just before the one {@code save} — see
+     * {@link #confirmDelivery}, which uses this to stamp {@code deliveredAt} in the same write as
+     * the status flip, so a rejected transition (still {@code OUT_FOR_DELIVERY} required, or
+     * already {@code DELIVERED}) can never leave a {@code deliveredAt} behind on an order that
+     * didn't actually just get delivered.
+     */
+    private void transitionStatus(Order order, OrderStatus target, Runnable beforeSave) {
         if (!order.getStatus().canTransitionTo(target)) {
             throw new InvalidOrderStatusTransitionException(
                     "Order " + order.getId() + " cannot move from " + order.getStatus() + " to " + target);
         }
+        beforeSave.run();
         order.setStatus(target);
         orderRepository.save(order);
     }
@@ -459,7 +630,7 @@ public class OrderService {
      * from the already-freshly-loaded {@code cart}, resolves the delivery address (a saved address
      * that must belong to the caller, or a transient inline one — see
      * {@link #resolveDeliveryAddress}), and validates the payment method — then recomputes
-     * subtotal/delivery/discount/total from that, never from anything the caller sent.
+     * subtotal/delivery/total from that, never from anything the caller sent.
      * <p>
      * Also the single choke point for {@link PlatformSettingsService#isMaintenanceModeEnabled()}
      * and for the customer's {@link UserStatus}: both {@link #previewCheckout} and
@@ -491,20 +662,10 @@ public class OrderService {
                 .map(item -> item.getMenuItem().getPrice().multiply(BigDecimal.valueOf(item.getQuantity())))
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
         BigDecimal deliveryFee = restaurant.getDeliveryFee();
-
-        Coupon coupon = null;
-        String couponCode = null;
-        BigDecimal discount = BigDecimal.ZERO;
-        if (request.getCouponCode() != null && !request.getCouponCode().isBlank()) {
-            CouponApplication application = couponService.validate(request.getCouponCode(), restaurant, subtotal);
-            coupon = application.coupon();
-            couponCode = coupon.getCode();
-            discount = application.discount();
-        }
-        BigDecimal total = subtotal.add(deliveryFee).subtract(discount);
+        BigDecimal total = subtotal.add(deliveryFee);
 
         return new OrderComputation(restaurant, cart.getItems(), address, paymentMethod, subtotal, deliveryFee,
-                coupon, couponCode, discount, total);
+                total);
     }
 
     private Order buildOrder(OrderComputation computation, Long customerId) {
@@ -522,11 +683,9 @@ public class OrderService {
 
         order.setSubtotal(computation.subtotal());
         order.setDeliveryFee(computation.deliveryFee());
-        order.setCouponCode(computation.couponCode());
-        order.setDiscount(computation.discount());
         order.setTotal(computation.total());
         order.setPaymentMethod(computation.paymentMethod());
-        order.setStatus(OrderStatus.NEW);
+        order.setStatus(OrderStatus.CONFIRMED);
 
         for (CartItem cartItem : computation.items()) {
             MenuItem menuItem = cartItem.getMenuItem();
@@ -630,6 +789,6 @@ public class OrderService {
 
     private record OrderComputation(Restaurant restaurant, List<CartItem> items, Address address,
                                      PaymentMethod paymentMethod, BigDecimal subtotal, BigDecimal deliveryFee,
-                                     Coupon coupon, String couponCode, BigDecimal discount, BigDecimal total) {
+                                     BigDecimal total) {
     }
 }

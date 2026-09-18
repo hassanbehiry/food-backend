@@ -13,6 +13,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -21,10 +22,10 @@ import org.springframework.web.bind.annotation.RestController;
 import java.time.LocalDate;
 
 /**
- * Customer order endpoints: step two of checkout (place the order), lookup, and
- * customer-initiated cancellation. Thin controller — {@link OrderService} resolves the caller
- * itself via {@code UserContext} and enforces that an order can only be read or cancelled by the
- * customer who placed it.
+ * Customer order endpoints: step two of checkout (place the order), lookup, customer-initiated
+ * cancellation, and customer-confirmed delivery. Thin controller — {@link OrderService} resolves
+ * the caller itself via {@code UserContext} and enforces that an order can only be read,
+ * cancelled, or confirmed delivered by the customer who placed it.
  */
 @RestController
 @RequestMapping("/api/v1/orders")
@@ -73,5 +74,16 @@ public class OrderController {
     @PostMapping("/{orderId}/cancel")
     public ResponseEntity<OrderResponse> cancelOrder(@PathVariable Long orderId) {
         return ResponseEntity.ok(orderService.cancelOrder(orderId));
+    }
+
+    /**
+     * PUT /api/v1/orders/{orderId}/confirm-delivery — the customer confirming an
+     * {@code OUT_FOR_DELIVERY} order has arrived. 404 if the order doesn't exist or isn't the
+     * caller's own; 409 if it isn't currently {@code OUT_FOR_DELIVERY} (including if it was
+     * already confirmed delivered).
+     */
+    @PutMapping("/{orderId}/confirm-delivery")
+    public ResponseEntity<OrderResponse> confirmDelivery(@PathVariable Long orderId) {
+        return ResponseEntity.ok(orderService.confirmDelivery(orderId));
     }
 }

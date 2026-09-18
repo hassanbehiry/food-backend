@@ -45,4 +45,11 @@ public class RegisterRequest {
      */
     @Size(max = 150, message = "Restaurant name must be at most 150 characters")
     private String restaurantName;
+
+    /**
+     * The platform category (homepage discovery chip, e.g. "بيتزا") the new restaurant is linked
+     * to. Required when {@code role == OWNER} (validated in
+     * {@link com.food.foodapp.auth.service.AuthService#register}); ignored for a customer.
+     */
+    private Long categoryId;
 }

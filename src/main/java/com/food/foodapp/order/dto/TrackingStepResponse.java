@@ -4,7 +4,7 @@ import com.food.foodapp.order.entity.OrderStatus;
 import lombok.Builder;
 import lombok.Getter;
 
-/** One milestone in the customer-visible tracking progress: {@code NEW} → {@code PREPARING} → {@code ON_THE_WAY} → {@code DELIVERED}. */
+/** One milestone in the customer-visible tracking progress: {@code CONFIRMED} → {@code DELIVERED}. */
 @Getter
 @Builder
 public class TrackingStepResponse {

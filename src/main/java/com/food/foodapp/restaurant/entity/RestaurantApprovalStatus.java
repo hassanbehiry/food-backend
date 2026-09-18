@@ -4,8 +4,8 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Platform-admin approval/suspension state. Independent of the owner-controlled
- * {@code openForOrders} toggle — approval governs whether a restaurant may appear
+ * Platform-admin approval/suspension state. Independent of business hours
+ * ({@code Restaurant#isCurrentlyOpen()}) — approval governs whether a restaurant may appear
  * on the platform at all, not whether it is currently accepting orders.
  * <p>
  * {@link #canTransitionTo(RestaurantApprovalStatus)} is the single source of truth for which

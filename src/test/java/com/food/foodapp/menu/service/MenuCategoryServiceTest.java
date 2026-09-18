@@ -1,5 +1,6 @@
 package com.food.foodapp.menu.service;
 
+import com.food.foodapp.category.repository.CategoryRepository;
 import com.food.foodapp.common.exception.DuplicateMenuCategoryException;
 import com.food.foodapp.common.exception.InvalidRequestParameterException;
 import com.food.foodapp.common.exception.MenuCategoryNotFoundException;
@@ -44,11 +45,14 @@ class MenuCategoryServiceTest {
     @Mock
     private RestaurantOwnershipGuard ownershipGuard;
 
+    @Mock
+    private CategoryRepository categoryRepository;
+
     private MenuCategoryService menuCategoryService;
 
     @BeforeEach
     void setUp() {
-        RestaurantService restaurantService = new RestaurantService(restaurantRepository, ownershipGuard);
+        RestaurantService restaurantService = new RestaurantService(restaurantRepository, ownershipGuard, categoryRepository);
         menuCategoryService = new MenuCategoryService(menuCategoryRepository, restaurantService, ownershipGuard);
     }
 
@@ -231,10 +235,8 @@ class MenuCategoryServiceTest {
         restaurant.setName("Test Restaurant");
         restaurant.setCuisine("إيطالي");
         restaurant.setDeliveryFee(BigDecimal.valueOf(10));
-        restaurant.setMinimumOrder(BigDecimal.valueOf(50));
         restaurant.setEstimatedDeliveryMinMinutes(20);
         restaurant.setEstimatedDeliveryMaxMinutes(30);
-        restaurant.setOpenForOrders(true);
         restaurant.setApprovalStatus(RestaurantApprovalStatus.APPROVED);
         return restaurant;
     }

@@ -31,15 +31,15 @@ import java.util.Set;
 /**
  * A restaurant available for customer discovery.
  * <p>
- * {@code approvalStatus} (admin-owned) and {@code openForOrders} (owner-owned) are
- * kept as separate fields on purpose — they are different concerns owned by
- * different roles and must not be collapsed into a single status.
+ * Whether a restaurant is currently accepting orders is derived entirely from
+ * {@code openTime}/{@code closeTime} (see {@link #isCurrentlyOpen()}) — there is no separate
+ * owner-settable "open/closed" switch. {@code approvalStatus} remains a distinct, admin-owned
+ * concern (see {@link RestaurantApprovalStatus}) and is never collapsed into this.
  */
 @Entity
 @Table(name = "restaurants")
 @Check(constraints = "estimated_delivery_max_minutes >= estimated_delivery_min_minutes "
-        + "AND delivery_fee >= 0 AND minimum_order >= 0 "
-        + "AND rating_average >= 0 AND rating_average <= 5 AND review_count >= 0 "
+        + "AND delivery_fee >= 0 "
         + "AND (open_time IS NULL OR close_time IS NULL OR close_time > open_time)")
 @Getter
 @Setter
@@ -63,17 +63,8 @@ public class Restaurant {
     @Column(name = "cover_image_url", length = 500)
     private String coverImageUrl;
 
-    @Column(name = "rating_average", nullable = false, precision = 3, scale = 2)
-    private BigDecimal ratingAverage = BigDecimal.ZERO;
-
-    @Column(name = "review_count", nullable = false)
-    private int reviewCount = 0;
-
     @Column(name = "delivery_fee", nullable = false, precision = 10, scale = 2)
     private BigDecimal deliveryFee;
-
-    @Column(name = "minimum_order", nullable = false, precision = 10, scale = 2)
-    private BigDecimal minimumOrder;
 
     @Column(name = "estimated_delivery_min_minutes", nullable = false)
     private int estimatedDeliveryMinMinutes;
@@ -89,11 +80,7 @@ public class Restaurant {
     @Column(name = "close_time")
     private LocalTime closeTime;
 
-    /** "Accepting orders now" — owner-controlled. Not the admin approval/suspension state. */
-    @Column(name = "is_open_for_orders", nullable = false)
-    private boolean openForOrders = true;
-
-    /** Admin-controlled approval/suspension state. Not the owner's open/closed toggle. */
+    /** Admin-controlled approval/suspension state. Not derived from business hours. */
     @Enumerated(EnumType.STRING)
     @Column(name = "approval_status", nullable = false, length = 20)
     private RestaurantApprovalStatus approvalStatus = RestaurantApprovalStatus.PENDING;
@@ -122,4 +109,19 @@ public class Restaurant {
 
     @UpdateTimestamp
     private LocalDateTime updatedAt;
+
+    /**
+     * Whether the restaurant is inside its posted business hours right now. No schedule set
+     * (either bound {@code null}) means always open, matching the previous default of accepting
+     * orders until the owner configures hours. A pure function of this entity's own fields, unlike
+     * {@code RestaurantService.isCustomerVisible}/{@code isCustomerReadable}, which combine this
+     * with the admin-owned approval state and stay in the service layer on purpose.
+     */
+    public boolean isCurrentlyOpen() {
+        if (openTime == null || closeTime == null) {
+            return true;
+        }
+        LocalTime now = LocalTime.now();
+        return !now.isBefore(openTime) && now.isBefore(closeTime);
+    }
 }

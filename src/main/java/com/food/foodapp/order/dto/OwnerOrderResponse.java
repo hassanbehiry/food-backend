@@ -1,5 +1,6 @@
 package com.food.foodapp.order.dto;
 
+import com.food.foodapp.order.entity.DeliveryConfirmedBy;
 import com.food.foodapp.order.entity.OrderStatus;
 import com.food.foodapp.order.entity.PaymentMethod;
 import lombok.Builder;
@@ -27,11 +28,13 @@ public class OwnerOrderResponse {
     private String deliveryAddress;
     private BigDecimal subtotal;
     private BigDecimal deliveryFee;
-    private String couponCode;
-    private BigDecimal discount;
     private BigDecimal total;
     private PaymentMethod paymentMethod;
     private OrderStatus status;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
+    private LocalDateTime deliveredAt;
+    private DeliveryConfirmedBy deliveredBy;
+    private LocalDateTime sentToDeliveryAt;
+    private String deliveryPersonName;
 }

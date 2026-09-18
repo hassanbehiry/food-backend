@@ -20,10 +20,6 @@ import org.springframework.web.bind.annotation.RestController;
  * There is no separate "restore" endpoint: {@code /approve} is also how an admin reactivates a
  * {@code SUSPENDED} restaurant, since both cases mean "this restaurant is active" — see
  * {@code RestaurantApprovalStatus} for the transition table.
- * <p>
- * NOTE: same authorization gap as {@link com.food.foodapp.menu.controller.OwnerMenuCategoryController}
- * — this codebase has no admin-authentication middleware yet (no {@code ADMIN} role, no Spring
- * Security), so these endpoints are not yet gated to an authenticated admin.
  */
 @RestController
 @RequestMapping("/api/v1/admin/restaurants")

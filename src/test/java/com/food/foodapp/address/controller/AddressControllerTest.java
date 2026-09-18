@@ -119,14 +119,9 @@ class AddressControllerTest {
     }
 
     @Test
-    void deleteAddress_returns200WithDeletionBody() throws Exception {
-        when(addressService.deleteAddress(100L))
-                .thenReturn(com.food.foodapp.common.response.DeletionResponse.ok(7L));
-
+    void deleteAddress_returns204() throws Exception {
         mockMvc.perform(delete("/api/v1/user/addresses/100"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.deleted").value(true))
-                .andExpect(jsonPath("$.promotedDefaultId").value(7));
+                .andExpect(status().isNoContent());
     }
 
     @Test

@@ -2,9 +2,11 @@ package com.food.foodapp.order.repository;
 
 import com.food.foodapp.order.entity.Order;
 import com.food.foodapp.order.entity.OrderStatus;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -25,6 +27,29 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
             + "LEFT JOIN FETCH o.restaurant "
             + "WHERE o.id = :id AND o.customer.id = :customerId")
     Optional<Order> findByIdAndCustomerIdWithItems(@Param("id") Long id, @Param("customerId") Long customerId);
+
+    /**
+     * Same ownership scoping as {@link #findByIdAndCustomerIdWithItems}, but takes a
+     * {@code PESSIMISTIC_WRITE} row lock and skips the {@code items}/{@code restaurant} fetch
+     * joins (a lock cannot be combined with a fetch-join query). Used by
+     * {@code OrderService#confirmDelivery}: it only ever reads/writes {@code status} and
+     * {@code deliveredAt}/{@code deliveredBy}, never {@code items}. Serializes a customer's
+     * confirmation against a concurrent owner-side {@link #findByIdAndRestaurantIdForUpdate} call
+     * on the same order, the same way {@code CartRepository.findByCustomerIdForUpdate} serializes
+     * concurrent cart mutations — so the two independent paths to {@code DELIVERED} (see
+     * {@link OrderStatus}) can never both "win" against the same row.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT o FROM Order o WHERE o.id = :id AND o.customer.id = :customerId")
+    Optional<Order> findByIdAndCustomerIdForUpdate(@Param("id") Long id, @Param("customerId") Long customerId);
+
+    /**
+     * Owner-scoped counterpart of {@link #findByIdAndCustomerIdForUpdate} — see that method's
+     * javadoc. Used by {@code OrderService#sendToDelivery} and {@code OrderService#deliverOrder}.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT o FROM Order o WHERE o.id = :id AND o.restaurant.id = :restaurantId")
+    Optional<Order> findByIdAndRestaurantIdForUpdate(@Param("id") Long id, @Param("restaurantId") Long restaurantId);
 
     /**
      * Scoped to {@code restaurantId} so an id belonging to another restaurant is indistinguishable
@@ -60,6 +85,21 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
 
     /** Per-tab counts for the owner dashboard's status badges. */
     long countByRestaurantIdAndStatus(Long restaurantId, OrderStatus status);
+
+    /**
+     * The delivery dashboard's operational queue: every order currently {@code OUT_FOR_DELIVERY}
+     * for one restaurant, oldest-dispatched-first, with {@code items} and {@code customer} both
+     * join-fetched. Unlike {@link #findByRestaurantIdAndOptionalStatus}, this deliberately fetches
+     * the {@code items} bag too: the active {@code OUT_FOR_DELIVERY} set is always small (a
+     * restaurant's currently-out-for-delivery orders, not its whole history), so the "cannot
+     * simultaneously fetch multiple bags" / pagination-blowup concerns that keep the general order
+     * list from fetching items don't apply here — there is no pagination on this query at all.
+     */
+    @Query("SELECT DISTINCT o FROM Order o LEFT JOIN FETCH o.items LEFT JOIN FETCH o.customer "
+            + "WHERE o.restaurant.id = :restaurantId AND o.status = :status "
+            + "ORDER BY o.sentToDeliveryAt ASC NULLS LAST, o.createdAt ASC")
+    List<Order> findByRestaurantIdAndStatusWithItems(
+            @Param("restaurantId") Long restaurantId, @Param("status") OrderStatus status);
 
     /** The "all" tab's total, and the dashboard stats' denominator. */
     long countByRestaurantId(Long restaurantId);

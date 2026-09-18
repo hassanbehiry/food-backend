@@ -17,6 +17,5 @@ public class CartResponse {
     private List<CartItemResponse> items;
     private BigDecimal subtotal;
     private BigDecimal deliveryFee;
-    private BigDecimal discount;
     private BigDecimal total;
 }

@@ -31,7 +31,7 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/v1/owner/restaurants/{restaurantId}/menu/categories")
 @RequiredArgsConstructor
-public class OwnerMenuCategoryController {
+public class  OwnerMenuCategoryController {
 
     private final MenuCategoryService menuCategoryService;
 

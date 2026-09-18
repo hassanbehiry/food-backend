@@ -28,8 +28,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * An immutable record of a placed order. {@code subtotal}, {@code deliveryFee},
- * {@code discount}, {@code total}, and every {@link OrderItem}'s own {@code unitPrice}/
+ * An immutable record of a placed order. {@code subtotal}, {@code deliveryFee}, {@code total},
+ * and every {@link OrderItem}'s own {@code unitPrice}/
  * {@code lineTotal} are snapshots computed once at order-creation time from then-authoritative
  * data and never recalculated afterward, so a later menu-price change can never alter a past
  * receipt.
@@ -41,7 +41,7 @@ import java.util.List;
  */
 @Entity
 @Table(name = "orders")
-@Check(constraints = "subtotal >= 0 AND delivery_fee >= 0 AND discount >= 0 AND total >= 0")
+@Check(constraints = "subtotal >= 0 AND delivery_fee >= 0 AND total >= 0")
 @Getter
 @Setter
 @NoArgsConstructor
@@ -92,13 +92,6 @@ public class Order {
     private BigDecimal deliveryFee;
 
     @Column(nullable = false, precision = 10, scale = 2)
-    private BigDecimal discount;
-
-    /** The coupon redeemed for {@code discount}, if any — a snapshot of the code, not a live reference to {@code Coupon}. */
-    @Column(name = "coupon_code", length = 30)
-    private String couponCode;
-
-    @Column(nullable = false, precision = 10, scale = 2)
     private BigDecimal total;
 
     @Enumerated(EnumType.STRING)
@@ -107,7 +100,37 @@ public class Order {
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
-    private OrderStatus status = OrderStatus.NEW;
+    private OrderStatus status = OrderStatus.CONFIRMED;
+
+    /**
+     * Set once, the moment the order reaches {@link OrderStatus#DELIVERED} — via either the
+     * customer confirming receipt ({@code PUT /orders/{id}/confirm-delivery}) or the restaurant
+     * confirming hand-off ({@code POST /orders/{id}/deliver}); see {@link #deliveredBy}.
+     * {@code null} until then.
+     */
+    @Column(name = "delivered_at")
+    private LocalDateTime deliveredAt;
+
+    /** Which side made that delivery confirmation — {@code null} until {@link #deliveredAt} is set. */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "delivered_by", length = 20)
+    private DeliveryConfirmedBy deliveredBy;
+
+    /**
+     * Set once, the moment the restaurant dispatches the order to a courier
+     * ({@code OrderService#sendToDelivery}, {@code OUT_FOR_DELIVERY}) — {@code null} until then.
+     */
+    @Column(name = "sent_to_delivery_at")
+    private LocalDateTime sentToDeliveryAt;
+
+    /**
+     * Free-text name of whoever is carrying the order, optionally supplied by the restaurant when
+     * dispatching it (see {@code OrderService#sendToDelivery}). There is no dedicated courier/driver
+     * account or role in this system (see {@code Role}), so this is a plain label rather than a
+     * relation — {@code null} if the restaurant didn't provide one.
+     */
+    @Column(name = "delivery_person_name", length = 150)
+    private String deliveryPersonName;
 
     @CreationTimestamp
     @Column(updatable = false)

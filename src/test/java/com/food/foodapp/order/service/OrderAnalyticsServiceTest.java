@@ -58,7 +58,7 @@ class OrderAnalyticsServiceTest {
                 .thenReturn(new RevenueAggregate(BigDecimal.valueOf(500), 10L),
                         new RevenueAggregate(BigDecimal.valueOf(400), 8L));
         when(orderRepository.countByRestaurantIdGroupByStatusInRange(eq(5L), any(), any()))
-                .thenReturn(List.of(new OrderStatusCount(OrderStatus.DELIVERED, 10L), new OrderStatusCount(OrderStatus.NEW, 3L)));
+                .thenReturn(List.of(new OrderStatusCount(OrderStatus.DELIVERED, 10L), new OrderStatusCount(OrderStatus.CONFIRMED, 3L)));
 
         OwnerAnalyticsOverviewResponse response = orderAnalyticsService.getOverview(5L);
 
@@ -73,7 +73,7 @@ class OrderAnalyticsServiceTest {
         assertThat(response.getCompletedOrders()).isEqualTo(10L);
         assertThat(response.getAverageOrderValue()).isEqualByComparingTo(BigDecimal.valueOf(50));
         assertThat(response.getOrdersByStatus()).hasSize(OrderStatus.values().length);
-        assertThat(response.getOrdersByStatus()).filteredOn(row -> row.getStatus() == OrderStatus.NEW)
+        assertThat(response.getOrdersByStatus()).filteredOn(row -> row.getStatus() == OrderStatus.CONFIRMED)
                 .extracting("count").containsExactly(3L);
         assertThat(response.getOrdersByStatus()).filteredOn(row -> row.getStatus() == OrderStatus.CANCELLED)
                 .extracting("count").containsExactly(0L);

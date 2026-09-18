@@ -1,12 +1,14 @@
 package com.food.foodapp.restaurant.service;
 
+import com.food.foodapp.category.entity.Category;
+import com.food.foodapp.category.repository.CategoryRepository;
+import com.food.foodapp.common.exception.CategoryNotFoundException;
 import com.food.foodapp.common.exception.InvalidRequestParameterException;
 import com.food.foodapp.common.exception.InvalidRestaurantApprovalTransitionException;
 import com.food.foodapp.common.exception.RestaurantNotFoundException;
 import com.food.foodapp.restaurant.dto.AdminRestaurantListResponse;
 import com.food.foodapp.restaurant.dto.AdminRestaurantResponse;
 import com.food.foodapp.restaurant.dto.OwnerRestaurantResponse;
-import com.food.foodapp.restaurant.dto.RestaurantAvailabilityRequest;
 import com.food.foodapp.restaurant.dto.RestaurantDetailResponse;
 import com.food.foodapp.restaurant.dto.RestaurantListResponse;
 import com.food.foodapp.restaurant.dto.RestaurantSettingsUpdateRequest;
@@ -41,8 +43,8 @@ import java.util.Map;
  * return every admin-{@code APPROVED} restaurant, including ones not currently accepting orders
  * (flagged {@code isOpenForOrders:false} so the UI can grey them out) — see
  * {@link RestaurantSpecifications#approvedForCustomerListing()} and {@link #isCustomerReadable(Restaurant)}.
- * Only the "can this customer place an order right now" checks — cart add, coupon validation,
- * checkout — additionally require the restaurant to be open, see {@link #isCustomerVisible(Restaurant)}.
+ * Only the "can this customer place an order right now" checks — cart add, checkout — additionally
+ * require the restaurant to be open, see {@link #isCustomerVisible(Restaurant)}.
  */
 @Slf4j
 @Service
@@ -53,6 +55,7 @@ public class RestaurantService {
 
     private final RestaurantRepository restaurantRepository;
     private final RestaurantOwnershipGuard ownershipGuard;
+    private final CategoryRepository categoryRepository;
 
     @Transactional(readOnly = true)
     public RestaurantListResponse searchRestaurants(String q, String categorySlug, String sort, int page, int size) {
@@ -139,9 +142,12 @@ public class RestaurantService {
         return restaurant.getApprovalStatus() == RestaurantApprovalStatus.APPROVED;
     }
 
-    /** Orderable by a customer right now: admin-approved <em>and</em> currently accepting orders. */
+    /**
+     * Orderable by a customer right now: admin-approved <em>and</em> currently within business
+     * hours (see {@link Restaurant#isCurrentlyOpen()} — no schedule set means always open).
+     */
     public static boolean isCustomerVisible(Restaurant restaurant) {
-        return restaurant.getApprovalStatus() == RestaurantApprovalStatus.APPROVED && restaurant.isOpenForOrders();
+        return restaurant.getApprovalStatus() == RestaurantApprovalStatus.APPROVED && restaurant.isCurrentlyOpen();
     }
 
     /** Owner-facing settings view — works regardless of approval/open status; caller must own it. */
@@ -154,7 +160,8 @@ public class RestaurantService {
      * Partial update — only the fields present in {@code request} are applied. {@code openTime} and
      * {@code closeTime} must be supplied together; the {@code closeTime > openTime} rule is
      * enforced here as a 400 before the row is saved (the entity {@code @Check} is only a backstop).
-     * An {@code isOpenForOrders} value, if present, is applied in the same call.
+     * These hours are also what drives whether the restaurant shows as open or closed — see
+     * {@link Restaurant#isCurrentlyOpen()} — there is no separate manual toggle.
      */
     @Transactional
     public OwnerRestaurantResponse updateSettings(Long id, RestaurantSettingsUpdateRequest request) {
@@ -177,14 +184,20 @@ public class RestaurantService {
         if (hasText(request.getCuisine())) {
             restaurant.setCuisine(request.getCuisine().trim());
         }
+        if (hasText(request.getCoverImageUrl())) {
+            restaurant.setCoverImageUrl(request.getCoverImageUrl().trim());
+        }
+        if (hasText(request.getLogoUrl())) {
+            restaurant.setLogoUrl(request.getLogoUrl().trim());
+        }
         if (request.getDeliveryFee() != null) {
             restaurant.setDeliveryFee(request.getDeliveryFee());
         }
-        if (request.getMinimumOrder() != null) {
-            restaurant.setMinimumOrder(request.getMinimumOrder());
-        }
-        if (request.getOpenForOrders() != null) {
-            restaurant.setOpenForOrders(request.getOpenForOrders());
+        if (request.getCategoryId() != null) {
+            Category category = categoryRepository.findById(request.getCategoryId())
+                    .orElseThrow(() -> new CategoryNotFoundException("Category not found: " + request.getCategoryId()));
+            restaurant.getCategories().clear();
+            restaurant.getCategories().add(category);
         }
 
         return RestaurantMapper.toOwnerResponse(restaurantRepository.save(restaurant));
@@ -192,14 +205,6 @@ public class RestaurantService {
 
     private static boolean hasText(String s) {
         return s != null && !s.isBlank();
-    }
-
-    /** Pause/resume the storefront. Distinct from admin approval — see {@link Restaurant#getApprovalStatus()}. */
-    @Transactional
-    public OwnerRestaurantResponse updateAvailability(Long id, RestaurantAvailabilityRequest request) {
-        Restaurant restaurant = ownershipGuard.requireOwnedRestaurant(id);
-        restaurant.setOpenForOrders(request.getOpenForOrders());
-        return RestaurantMapper.toOwnerResponse(restaurantRepository.save(restaurant));
     }
 
     private void validateBusinessHours(LocalTime openTime, LocalTime closeTime) {
@@ -299,11 +304,10 @@ public class RestaurantService {
             return null;
         }
         return switch (raw.trim().toLowerCase()) {
-            case "rating" -> RestaurantSortOption.RATING;
             case "delivery_time", "delivery-time", "deliverytime" -> RestaurantSortOption.DELIVERY_TIME;
             case "delivery_fee", "delivery-fee", "deliveryfee" -> RestaurantSortOption.DELIVERY_FEE;
             default -> throw new InvalidRequestParameterException(
-                    "Invalid 'sort' value: '" + raw + "'. Allowed values: rating, delivery_time, delivery_fee");
+                    "Invalid 'sort' value: '" + raw + "'. Allowed values: delivery_time, delivery_fee");
         };
     }
 
@@ -312,7 +316,6 @@ public class RestaurantService {
             return Sort.by(Sort.Direction.ASC, "id");
         }
         Sort primary = switch (option) {
-            case RATING -> Sort.by(Sort.Direction.DESC, "ratingAverage");
             case DELIVERY_TIME -> Sort.by(Sort.Direction.ASC, "estimatedDeliveryMinMinutes");
             case DELIVERY_FEE -> Sort.by(Sort.Direction.ASC, "deliveryFee");
         };

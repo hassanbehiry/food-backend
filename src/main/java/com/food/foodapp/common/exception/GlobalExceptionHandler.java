@@ -63,6 +63,24 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
     }
 
+    @ExceptionHandler(CategoryNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleCategoryNotFound(CategoryNotFoundException ex) {
+        ErrorResponse error = ErrorResponse.builder()
+                .status(HttpStatus.NOT_FOUND.value())
+                .message(ex.getMessage())
+                .build();
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
+    }
+
+    @ExceptionHandler(DuplicateCategoryException.class)
+    public ResponseEntity<ErrorResponse> handleDuplicateCategory(DuplicateCategoryException ex) {
+        ErrorResponse error = ErrorResponse.builder()
+                .status(HttpStatus.CONFLICT.value())
+                .message(ex.getMessage())
+                .build();
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
+    }
+
     @ExceptionHandler(DuplicateMenuCategoryException.class)
     public ResponseEntity<ErrorResponse> handleDuplicateMenuCategory(DuplicateMenuCategoryException ex) {
         ErrorResponse error = ErrorResponse.builder()
@@ -146,24 +164,6 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(InvalidRestaurantApprovalTransitionException.class)
     public ResponseEntity<ErrorResponse> handleInvalidRestaurantApprovalTransition(InvalidRestaurantApprovalTransitionException ex) {
-        ErrorResponse error = ErrorResponse.builder()
-                .status(HttpStatus.CONFLICT.value())
-                .message(ex.getMessage())
-                .build();
-        return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
-    }
-
-    @ExceptionHandler(CouponNotFoundException.class)
-    public ResponseEntity<ErrorResponse> handleCouponNotFound(CouponNotFoundException ex) {
-        ErrorResponse error = ErrorResponse.builder()
-                .status(HttpStatus.NOT_FOUND.value())
-                .message(ex.getMessage())
-                .build();
-        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
-    }
-
-    @ExceptionHandler(CouponNotApplicableException.class)
-    public ResponseEntity<ErrorResponse> handleCouponNotApplicable(CouponNotApplicableException ex) {
         ErrorResponse error = ErrorResponse.builder()
                 .status(HttpStatus.CONFLICT.value())
                 .message(ex.getMessage())
@@ -284,24 +284,6 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.UNSUPPORTED_MEDIA_TYPE).body(error);
     }
 
-    @ExceptionHandler(ReviewNotFoundException.class)
-    public ResponseEntity<ErrorResponse> handleReviewNotFound(ReviewNotFoundException ex) {
-        ErrorResponse error = ErrorResponse.builder()
-                .status(HttpStatus.NOT_FOUND.value())
-                .message(ex.getMessage())
-                .build();
-        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
-    }
-
-    @ExceptionHandler(ReviewAccessDeniedException.class)
-    public ResponseEntity<ErrorResponse> handleReviewAccessDenied(ReviewAccessDeniedException ex) {
-        ErrorResponse error = ErrorResponse.builder()
-                .status(HttpStatus.FORBIDDEN.value())
-                .message(ex.getMessage())
-                .build();
-        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(error);
-    }
-
     @ExceptionHandler(OwnerAccessDeniedException.class)
     public ResponseEntity<ErrorResponse> handleOwnerAccessDenied(OwnerAccessDeniedException ex) {
         ErrorResponse error = ErrorResponse.builder()
@@ -318,33 +300,6 @@ public class GlobalExceptionHandler {
                 .message(ex.getMessage())
                 .build();
         return ResponseEntity.status(HttpStatus.FORBIDDEN).body(error);
-    }
-
-    @ExceptionHandler(ReviewNotEligibleException.class)
-    public ResponseEntity<ErrorResponse> handleReviewNotEligible(ReviewNotEligibleException ex) {
-        ErrorResponse error = ErrorResponse.builder()
-                .status(HttpStatus.CONFLICT.value())
-                .message(ex.getMessage())
-                .build();
-        return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
-    }
-
-    @ExceptionHandler(DuplicateReviewException.class)
-    public ResponseEntity<ErrorResponse> handleDuplicateReview(DuplicateReviewException ex) {
-        ErrorResponse error = ErrorResponse.builder()
-                .status(HttpStatus.CONFLICT.value())
-                .message(ex.getMessage())
-                .build();
-        return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
-    }
-
-    @ExceptionHandler(PasswordResetTokenInvalidException.class)
-    public ResponseEntity<ErrorResponse> handlePasswordResetTokenInvalid(PasswordResetTokenInvalidException ex) {
-        ErrorResponse error = ErrorResponse.builder()
-                .status(HttpStatus.BAD_REQUEST.value())
-                .message(ex.getMessage())
-                .build();
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(error);
     }
 
     /**

@@ -123,7 +123,6 @@ class CheckoutControllerTest {
                 .paymentMethod(PaymentMethod.CASH_ON_DELIVERY)
                 .subtotal(BigDecimal.valueOf(100))
                 .deliveryFee(BigDecimal.valueOf(12))
-                .discount(BigDecimal.ZERO)
                 .total(BigDecimal.valueOf(112))
                 .build();
     }

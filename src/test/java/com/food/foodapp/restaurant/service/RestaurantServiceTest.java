@@ -1,18 +1,19 @@
 package com.food.foodapp.restaurant.service;
 
+import com.food.foodapp.category.repository.CategoryRepository;
 import com.food.foodapp.common.exception.InvalidRequestParameterException;
 import com.food.foodapp.common.exception.InvalidRestaurantApprovalTransitionException;
 import com.food.foodapp.common.exception.RestaurantNotFoundException;
 import com.food.foodapp.restaurant.dto.AdminRestaurantListResponse;
 import com.food.foodapp.restaurant.dto.AdminRestaurantResponse;
 import com.food.foodapp.restaurant.dto.OwnerRestaurantResponse;
-import com.food.foodapp.restaurant.dto.RestaurantAvailabilityRequest;
 import com.food.foodapp.restaurant.dto.RestaurantDetailResponse;
 import com.food.foodapp.restaurant.dto.RestaurantListResponse;
 import com.food.foodapp.restaurant.dto.RestaurantSettingsUpdateRequest;
 import com.food.foodapp.restaurant.entity.Restaurant;
 import com.food.foodapp.restaurant.entity.RestaurantApprovalStatus;
 import com.food.foodapp.restaurant.repository.RestaurantRepository;
+import com.food.foodapp.support.ClosedHoursFixture;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -47,11 +48,14 @@ class RestaurantServiceTest {
     @Mock
     private RestaurantOwnershipGuard ownershipGuard;
 
+    @Mock
+    private CategoryRepository categoryRepository;
+
     private RestaurantService restaurantService;
 
     @BeforeEach
     void setUp() {
-        restaurantService = new RestaurantService(restaurantRepository, ownershipGuard);
+        restaurantService = new RestaurantService(restaurantRepository, ownershipGuard, categoryRepository);
     }
 
     @Test
@@ -80,7 +84,7 @@ class RestaurantServiceTest {
         // An approved-but-closed restaurant is still readable (its detail + menu show, greyed out);
         // only the ordering paths reject a closed restaurant. See GAP-021.
         Restaurant restaurant = approvedOpenRestaurant();
-        restaurant.setOpenForOrders(false);
+        ClosedHoursFixture.makeClosedRightNow(restaurant);
         when(restaurantRepository.findByIdWithCategories(1L)).thenReturn(Optional.of(restaurant));
 
         RestaurantDetailResponse response = restaurantService.getVisibleRestaurantById(1L);
@@ -127,16 +131,6 @@ class RestaurantServiceTest {
     }
 
     @Test
-    void searchRestaurants_sortsByRatingDescending_withIdTiebreaker() {
-        stubEmptyPage();
-
-        restaurantService.searchRestaurants(null, null, "rating", 0, 20);
-
-        assertThat(capturePageable().getSort()).isEqualTo(
-                Sort.by(Sort.Direction.DESC, "ratingAverage").and(Sort.by(Sort.Direction.ASC, "id")));
-    }
-
-    @Test
     void searchRestaurants_sortsByDeliveryTimeAscending_withIdTiebreaker() {
         stubEmptyPage();
 
@@ -174,7 +168,7 @@ class RestaurantServiceTest {
     void getOwnerRestaurant_returnsResponse_regardlessOfApprovalOrOpenStatus() {
         Restaurant restaurant = approvedOpenRestaurant();
         restaurant.setApprovalStatus(RestaurantApprovalStatus.PENDING);
-        restaurant.setOpenForOrders(false);
+        ClosedHoursFixture.makeClosedRightNow(restaurant);
         when(ownershipGuard.requireOwnedRestaurant(1L)).thenReturn(restaurant);
 
         OwnerRestaurantResponse response = restaurantService.getOwnerRestaurant(1L);
@@ -203,7 +197,6 @@ class RestaurantServiceTest {
         assertThat(response.getName()).isEqualTo("Updated Name");
         assertThat(response.getCuisine()).isEqualTo("مصري");
         assertThat(response.getDeliveryFee()).isEqualByComparingTo(BigDecimal.valueOf(15));
-        assertThat(response.getMinimumOrder()).isEqualByComparingTo(BigDecimal.valueOf(60));
         assertThat(response.getOpenTime()).isEqualTo(LocalTime.of(9, 0));
         assertThat(response.getCloseTime()).isEqualTo(LocalTime.of(23, 0));
     }
@@ -228,32 +221,6 @@ class RestaurantServiceTest {
 
         assertThatThrownBy(() -> restaurantService.updateSettings(1L, request))
                 .isInstanceOf(InvalidRequestParameterException.class);
-    }
-
-    @Test
-    void updateAvailability_updatesFlag() {
-        Restaurant restaurant = approvedOpenRestaurant();
-        when(ownershipGuard.requireOwnedRestaurant(1L)).thenReturn(restaurant);
-        when(restaurantRepository.save(any(Restaurant.class))).thenAnswer(invocation -> invocation.getArgument(0));
-
-        RestaurantAvailabilityRequest request = new RestaurantAvailabilityRequest();
-        request.setOpenForOrders(false);
-
-        OwnerRestaurantResponse response = restaurantService.updateAvailability(1L, request);
-
-        assertThat(response.isOpenForOrders()).isFalse();
-    }
-
-    @Test
-    void updateAvailability_propagatesForbidden_fromOwnershipGuard() {
-        when(ownershipGuard.requireOwnedRestaurant(99L))
-                .thenThrow(new com.food.foodapp.common.exception.OwnerAccessDeniedException("nope"));
-
-        RestaurantAvailabilityRequest request = new RestaurantAvailabilityRequest();
-        request.setOpenForOrders(false);
-
-        assertThatThrownBy(() -> restaurantService.updateAvailability(99L, request))
-                .isInstanceOf(com.food.foodapp.common.exception.OwnerAccessDeniedException.class);
     }
 
     @Test
@@ -401,7 +368,6 @@ class RestaurantServiceTest {
         request.setName("Updated Name");
         request.setCuisine("مصري");
         request.setDeliveryFee(BigDecimal.valueOf(15));
-        request.setMinimumOrder(BigDecimal.valueOf(60));
         request.setOpenTime(LocalTime.of(9, 0));
         request.setCloseTime(LocalTime.of(23, 0));
         return request;
@@ -424,10 +390,8 @@ class RestaurantServiceTest {
         restaurant.setName("Test Restaurant");
         restaurant.setCuisine("إيطالي");
         restaurant.setDeliveryFee(BigDecimal.valueOf(10));
-        restaurant.setMinimumOrder(BigDecimal.valueOf(50));
         restaurant.setEstimatedDeliveryMinMinutes(20);
         restaurant.setEstimatedDeliveryMaxMinutes(30);
-        restaurant.setOpenForOrders(true);
         restaurant.setApprovalStatus(RestaurantApprovalStatus.APPROVED);
         return restaurant;
     }

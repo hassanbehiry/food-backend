@@ -20,7 +20,6 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -70,7 +69,7 @@ class OwnerRestaurantControllerTest {
         mockMvc.perform(put("/api/v1/owner/restaurants/1/settings")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\":\"Test Restaurant\",\"cuisine\":\"إيطالي\","
-                                + "\"deliveryFee\":15,\"minimumOrder\":50,"
+                                + "\"deliveryFee\":15,"
                                 + "\"openTime\":\"09:00:00\",\"closeTime\":\"23:00:00\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.name").value("Test Restaurant"));
@@ -87,12 +86,12 @@ class OwnerRestaurantControllerTest {
     }
 
     @Test
-    void updateSettings_acceptsRestNameAndMinOrderAliases() throws Exception {
+    void updateSettings_acceptsRestNameAlias() throws Exception {
         when(restaurantService.updateSettings(eq(1L), any())).thenReturn(response());
 
         mockMvc.perform(put("/api/v1/owner/restaurants/1/settings")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"restName\":\"New Name\",\"minOrder\":40,\"isOpenForOrders\":false}"))
+                        .content("{\"restName\":\"New Name\"}"))
                 .andExpect(status().isOk());
     }
 
@@ -104,7 +103,7 @@ class OwnerRestaurantControllerTest {
         mockMvc.perform(put("/api/v1/owner/restaurants/1/settings")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\":\"Test Restaurant\",\"cuisine\":\"إيطالي\","
-                                + "\"deliveryFee\":15,\"minimumOrder\":50,"
+                                + "\"deliveryFee\":15,"
                                 + "\"openTime\":\"12:00:00\",\"closeTime\":\"12:00:00\"}"))
                 .andExpect(status().isBadRequest());
     }
@@ -117,42 +116,8 @@ class OwnerRestaurantControllerTest {
         mockMvc.perform(put("/api/v1/owner/restaurants/99/settings")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\":\"Test Restaurant\",\"cuisine\":\"إيطالي\","
-                                + "\"deliveryFee\":15,\"minimumOrder\":50,"
+                                + "\"deliveryFee\":15,"
                                 + "\"openTime\":\"09:00:00\",\"closeTime\":\"23:00:00\"}"))
-                .andExpect(status().isNotFound());
-    }
-
-    @Test
-    void updateAvailability_returnsUpdatedRestaurant() throws Exception {
-        when(restaurantService.updateAvailability(eq(1L), any())).thenReturn(
-                OwnerRestaurantResponse.builder().id(1L).name("Test Restaurant").cuisine("إيطالي")
-                        .deliveryFee(BigDecimal.valueOf(15)).minimumOrder(BigDecimal.valueOf(50))
-                        .openTime(LocalTime.of(9, 0)).closeTime(LocalTime.of(23, 0))
-                        .openForOrders(false).build());
-
-        mockMvc.perform(patch("/api/v1/owner/restaurants/1/availability")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"isOpenForOrders\":false}"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.isOpenForOrders").value(false));
-    }
-
-    @Test
-    void updateAvailability_returns400_whenFlagMissing() throws Exception {
-        mockMvc.perform(patch("/api/v1/owner/restaurants/1/availability")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{}"))
-                .andExpect(status().isBadRequest());
-    }
-
-    @Test
-    void updateAvailability_returns404_whenMissing() throws Exception {
-        when(restaurantService.updateAvailability(eq(99L), any()))
-                .thenThrow(new RestaurantNotFoundException("Restaurant not found: 99"));
-
-        mockMvc.perform(patch("/api/v1/owner/restaurants/99/availability")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"isOpenForOrders\":false}"))
                 .andExpect(status().isNotFound());
     }
 
@@ -162,7 +127,6 @@ class OwnerRestaurantControllerTest {
                 .name("Test Restaurant")
                 .cuisine("إيطالي")
                 .deliveryFee(BigDecimal.valueOf(15))
-                .minimumOrder(BigDecimal.valueOf(50))
                 .openTime(LocalTime.of(9, 0))
                 .closeTime(LocalTime.of(23, 0))
                 .openForOrders(true)

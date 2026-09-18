@@ -25,7 +25,7 @@ public class RestaurantController {
     /**
      * GET /api/v1/restaurants
      * Supports {@code q} (name/cuisine search), {@code category} (category <em>slug</em> filter,
-     * e.g. {@code ?category=pizza}), {@code sort} (rating | delivery_time | delivery_fee) and
+     * e.g. {@code ?category=pizza}), {@code sort} (delivery_time | delivery_fee) and
      * pagination.
      */
     @GetMapping

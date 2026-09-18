@@ -17,9 +17,10 @@ public final class RestaurantSpecifications {
 
     /**
      * The customer discovery list shows every admin-{@code APPROVED} restaurant, whether or not
-     * it is currently accepting orders — a closed-but-approved restaurant is returned with
-     * {@code isOpenForOrders:false} so the UI can grey it out rather than being hidden entirely.
-     * Detail/menu visibility is a separate rule (see {@code RestaurantService.isCustomerVisible}).
+     * it is currently within business hours — a closed-but-approved restaurant is returned with
+     * a computed {@code isOpenForOrders:false} (see {@code Restaurant.isCurrentlyOpen()}) so the
+     * UI can grey it out rather than being hidden entirely. Detail/menu visibility is a separate
+     * rule (see {@code RestaurantService.isCustomerVisible}).
      */
     public static Specification<Restaurant> approvedForCustomerListing() {
         return (root, query, cb) -> cb.equal(root.get("approvalStatus"), RestaurantApprovalStatus.APPROVED);

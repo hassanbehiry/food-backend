@@ -72,7 +72,7 @@ class AdminAnalyticsServiceTest {
     void getOverview_returnsKpisWithTrendPercentages_for7dPeriod() {
         stubOverviewRepositories(20L, 15L, BigDecimal.valueOf(500), 10L, BigDecimal.valueOf(400), 8L, 12L, 10L, 100L, 90L);
         when(orderRepository.countGroupByStatusInRange(any(), any()))
-                .thenReturn(List.of(new OrderStatusCount(OrderStatus.DELIVERED, 10L), new OrderStatusCount(OrderStatus.NEW, 3L)));
+                .thenReturn(List.of(new OrderStatusCount(OrderStatus.DELIVERED, 10L), new OrderStatusCount(OrderStatus.CONFIRMED, 3L)));
 
         AdminAnalyticsOverviewResponse response = adminAnalyticsService.getOverview("7d");
 
@@ -86,7 +86,7 @@ class AdminAnalyticsServiceTest {
         assertThat(response.getRegisteredCustomersTrendPercentage()).isEqualByComparingTo(BigDecimal.valueOf(11.11));
         assertThat(response.getAverageOrderValue()).isEqualByComparingTo(BigDecimal.valueOf(50));
         assertThat(response.getOrdersByStatus()).hasSize(OrderStatus.values().length);
-        assertThat(response.getOrdersByStatus()).filteredOn(row -> row.getStatus() == OrderStatus.NEW)
+        assertThat(response.getOrdersByStatus()).filteredOn(row -> row.getStatus() == OrderStatus.CONFIRMED)
                 .extracting("count").containsExactly(3L);
         assertThat(response.getOrdersByStatus()).filteredOn(row -> row.getStatus() == OrderStatus.CANCELLED)
                 .extracting("count").containsExactly(0L);

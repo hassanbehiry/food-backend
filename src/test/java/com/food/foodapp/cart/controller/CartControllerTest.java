@@ -186,7 +186,6 @@ class CartControllerTest {
                 .items(List.of())
                 .subtotal(BigDecimal.ZERO)
                 .deliveryFee(BigDecimal.ZERO)
-                .discount(BigDecimal.ZERO)
                 .total(BigDecimal.ZERO)
                 .build();
     }
@@ -205,7 +204,6 @@ class CartControllerTest {
                         .build()))
                 .subtotal(BigDecimal.valueOf(100))
                 .deliveryFee(BigDecimal.valueOf(12))
-                .discount(BigDecimal.ZERO)
                 .total(BigDecimal.valueOf(112))
                 .build();
     }

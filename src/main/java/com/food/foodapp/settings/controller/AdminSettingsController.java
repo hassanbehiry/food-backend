@@ -16,10 +16,6 @@ import org.springframework.web.bind.annotation.RestController;
  * Platform-admin settings: read and full-replace update of the single {@link
  * com.food.foodapp.settings.entity.PlatformSettings} row. Thin controller — all business rules
  * live in {@link PlatformSettingsService}.
- * <p>
- * NOTE: same authorization gap as {@link com.food.foodapp.restaurant.controller.AdminRestaurantController}
- * — this codebase has no admin-authentication middleware yet (no {@code ADMIN} role, no Spring
- * Security), so these endpoints are not yet gated to an authenticated admin.
  */
 @RestController
 @RequestMapping("/api/v1/admin/settings")

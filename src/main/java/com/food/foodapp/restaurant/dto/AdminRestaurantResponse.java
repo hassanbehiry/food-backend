@@ -17,7 +17,6 @@ public class AdminRestaurantResponse {
     private String name;
     private String cuisine;
     private BigDecimal deliveryFee;
-    private BigDecimal minimumOrder;
     private LocalTime openTime;
     private LocalTime closeTime;
 
