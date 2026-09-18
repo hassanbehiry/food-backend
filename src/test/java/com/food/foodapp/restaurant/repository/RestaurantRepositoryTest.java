@@ -150,7 +150,6 @@ class RestaurantRepositoryTest {
         restaurant.setName(name);
         restaurant.setCuisine(name);
         restaurant.setDeliveryFee(BigDecimal.valueOf(10));
-        restaurant.setMinimumOrder(BigDecimal.valueOf(30));
         restaurant.setEstimatedDeliveryMinMinutes(20);
         restaurant.setEstimatedDeliveryMaxMinutes(30);
         restaurant.setApprovalStatus(status);

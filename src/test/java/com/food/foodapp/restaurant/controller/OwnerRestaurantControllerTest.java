@@ -69,7 +69,7 @@ class OwnerRestaurantControllerTest {
         mockMvc.perform(put("/api/v1/owner/restaurants/1/settings")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\":\"Test Restaurant\",\"cuisine\":\"إيطالي\","
-                                + "\"deliveryFee\":15,\"minimumOrder\":50,"
+                                + "\"deliveryFee\":15,"
                                 + "\"openTime\":\"09:00:00\",\"closeTime\":\"23:00:00\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.name").value("Test Restaurant"));
@@ -86,12 +86,12 @@ class OwnerRestaurantControllerTest {
     }
 
     @Test
-    void updateSettings_acceptsRestNameAndMinOrderAliases() throws Exception {
+    void updateSettings_acceptsRestNameAlias() throws Exception {
         when(restaurantService.updateSettings(eq(1L), any())).thenReturn(response());
 
         mockMvc.perform(put("/api/v1/owner/restaurants/1/settings")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"restName\":\"New Name\",\"minOrder\":40}"))
+                        .content("{\"restName\":\"New Name\"}"))
                 .andExpect(status().isOk());
     }
 
@@ -103,7 +103,7 @@ class OwnerRestaurantControllerTest {
         mockMvc.perform(put("/api/v1/owner/restaurants/1/settings")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\":\"Test Restaurant\",\"cuisine\":\"إيطالي\","
-                                + "\"deliveryFee\":15,\"minimumOrder\":50,"
+                                + "\"deliveryFee\":15,"
                                 + "\"openTime\":\"12:00:00\",\"closeTime\":\"12:00:00\"}"))
                 .andExpect(status().isBadRequest());
     }
@@ -116,7 +116,7 @@ class OwnerRestaurantControllerTest {
         mockMvc.perform(put("/api/v1/owner/restaurants/99/settings")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\":\"Test Restaurant\",\"cuisine\":\"إيطالي\","
-                                + "\"deliveryFee\":15,\"minimumOrder\":50,"
+                                + "\"deliveryFee\":15,"
                                 + "\"openTime\":\"09:00:00\",\"closeTime\":\"23:00:00\"}"))
                 .andExpect(status().isNotFound());
     }
@@ -127,7 +127,6 @@ class OwnerRestaurantControllerTest {
                 .name("Test Restaurant")
                 .cuisine("إيطالي")
                 .deliveryFee(BigDecimal.valueOf(15))
-                .minimumOrder(BigDecimal.valueOf(50))
                 .openTime(LocalTime.of(9, 0))
                 .closeTime(LocalTime.of(23, 0))
                 .openForOrders(true)

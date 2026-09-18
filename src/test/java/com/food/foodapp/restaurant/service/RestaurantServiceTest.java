@@ -197,7 +197,6 @@ class RestaurantServiceTest {
         assertThat(response.getName()).isEqualTo("Updated Name");
         assertThat(response.getCuisine()).isEqualTo("مصري");
         assertThat(response.getDeliveryFee()).isEqualByComparingTo(BigDecimal.valueOf(15));
-        assertThat(response.getMinimumOrder()).isEqualByComparingTo(BigDecimal.valueOf(60));
         assertThat(response.getOpenTime()).isEqualTo(LocalTime.of(9, 0));
         assertThat(response.getCloseTime()).isEqualTo(LocalTime.of(23, 0));
     }
@@ -369,7 +368,6 @@ class RestaurantServiceTest {
         request.setName("Updated Name");
         request.setCuisine("مصري");
         request.setDeliveryFee(BigDecimal.valueOf(15));
-        request.setMinimumOrder(BigDecimal.valueOf(60));
         request.setOpenTime(LocalTime.of(9, 0));
         request.setCloseTime(LocalTime.of(23, 0));
         return request;
@@ -392,7 +390,6 @@ class RestaurantServiceTest {
         restaurant.setName("Test Restaurant");
         restaurant.setCuisine("إيطالي");
         restaurant.setDeliveryFee(BigDecimal.valueOf(10));
-        restaurant.setMinimumOrder(BigDecimal.valueOf(50));
         restaurant.setEstimatedDeliveryMinMinutes(20);
         restaurant.setEstimatedDeliveryMaxMinutes(30);
         restaurant.setApprovalStatus(RestaurantApprovalStatus.APPROVED);

@@ -505,8 +505,8 @@ stateDiagram-v2
   - The **first** address a customer saves always becomes the default, whatever the request says.
   - A customer has at most one default address; making one the default clears the others.
   - Editing an address without sending `isDefault` leaves its default flag unchanged.
-  - Deleting the default address makes the customer's **oldest remaining** address the new default.
-    The response includes `promotedDefaultId`.
+  - Deleting the default address makes the customer's **oldest remaining** address the new default
+    (`DELETE` returns `204 No Content`; the frontend re-fetches the list to see the new default).
   - Changes that affect the default are locked on the customer's row, so concurrent requests can't
     produce two defaults.
 - **Exception flows:** An `addressId` that belongs to another customer → `404`.
@@ -544,7 +544,7 @@ flows aren't repeated below.
 - **Main flow:**
   1. The owner opens the settings (`GET /owner/restaurants/{restaurantId}`).
   2. The owner saves changes (`PUT .../settings`). This is a partial update: `name`, `cuisine`,
-     `logoUrl`, `coverImageUrl`, `deliveryFee`, `minimumOrder`, `categoryId` (replaces the
+     `logoUrl`, `coverImageUrl`, `deliveryFee`, `categoryId` (replaces the
      restaurant's category), and `openTime` + `closeTime`.
 - **Business rules:**
   - `openTime` and `closeTime` must be sent together, and `closeTime` must be after `openTime` on
@@ -798,27 +798,25 @@ These came up while tracing the use cases above. They describe how the code beha
 they're listed so no one has to rediscover them. Whether each one is a bug or intended is a product
 decision.
 
-1. **Minimum order is not enforced.** Owners can set `minimumOrder` (UC-15), and it's stored and
-   shown, but `OrderService#computeOrder` never checks it. An order below the minimum goes through.
-2. **Commission and default delivery fee do nothing.** `commissionPercentage` and
+1. **Commission and default delivery fee do nothing.** `commissionPercentage` and
    `defaultDeliveryFee` (UC-26) are saved and displayed, but no code reads them. Orders always use
    the restaurant's own `deliveryFee`, and no commission is deducted anywhere.
-3. **Maintenance mode only stops ordering.** It blocks UC-07 and UC-08 and nothing else. Browsing,
+2. **Maintenance mode only stops ordering.** It blocks UC-07 and UC-08 and nothing else. Browsing,
    cart changes, registration, owner menu edits and order-status changes all keep working.
-4. **A suspended user's current session keeps working.** Suspension is checked at login and when
+3. **A suspended user's current session keeps working.** Suspension is checked at login and when
    ordering. Until the JWT expires, the user can still manage their cart, addresses and profile,
    and cancel orders.
-5. **`/owner/**` checks authentication, not the `OWNER` role.** Restaurant-scoped owner routes are
+4. **`/owner/**` checks authentication, not the `OWNER` role.** Restaurant-scoped owner routes are
    still safe because of the ownership guard, but `POST /owner/categories` (UC-18) has no ownership
    guard — any signed-in **customer** can create platform-wide categories.
-6. **Deleting a menu category that still has items gives a `500`.** The `menu_items.category_id`
+5. **Deleting a menu category that still has items gives a `500`.** The `menu_items.category_id`
    foreign key has no `ON DELETE` rule and no handler turns the violation into a `409`, so it falls
    through to the generic `500` handler.
-7. **The revenue ledger is incomplete.** Only the owner's delivery path (UC-21) writes a
+6. **The revenue ledger is incomplete.** Only the owner's delivery path (UC-21) writes a
    `revenue_transactions` row; the customer's confirmation (UC-12) doesn't. Dashboards are still
    correct because they sum `DELIVERED` orders directly, but the ledger table on its own
    under-reports revenue.
-8. **Business hours can't cross midnight.** `closeTime` must be after `openTime` on the same day, so
+7. **Business hours can't cross midnight.** `closeTime` must be after `openTime` on the same day, so
    a 18:00–02:00 schedule can't be entered.
-9. **A cart can empty itself at closing time.** Automatic cleanup (UC-05) treats "outside business
+8. **A cart can empty itself at closing time.** Automatic cleanup (UC-05) treats "outside business
    hours" like "suspended", so a cart built just before closing is cleared the next time it's read.

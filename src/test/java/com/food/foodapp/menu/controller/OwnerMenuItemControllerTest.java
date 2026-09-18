@@ -135,10 +135,9 @@ class OwnerMenuItemControllerTest {
     }
 
     @Test
-    void delete_returns200WithDeletionBody() throws Exception {
+    void delete_returns204() throws Exception {
         mockMvc.perform(delete("/api/v1/owner/restaurants/1/items/100"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.deleted").value(true));
+                .andExpect(status().isNoContent());
     }
 
     @Test

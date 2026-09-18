@@ -18,7 +18,6 @@ public class RestaurantDetailResponse {
     private String logoUrl;
     private String coverImageUrl;
     private BigDecimal deliveryFee;
-    private BigDecimal minimumOrder;
     private int estimatedDeliveryMinMinutes;
     private int estimatedDeliveryMaxMinutes;
     private String estimatedDeliveryLabel;

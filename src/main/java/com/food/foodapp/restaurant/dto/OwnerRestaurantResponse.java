@@ -18,7 +18,6 @@ public class OwnerRestaurantResponse {
     private String logoUrl;
     private String coverImageUrl;
     private BigDecimal deliveryFee;
-    private BigDecimal minimumOrder;
     private LocalTime openTime;
     private LocalTime closeTime;
 

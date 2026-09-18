@@ -39,7 +39,7 @@ import java.util.Set;
 @Entity
 @Table(name = "restaurants")
 @Check(constraints = "estimated_delivery_max_minutes >= estimated_delivery_min_minutes "
-        + "AND delivery_fee >= 0 AND minimum_order >= 0 "
+        + "AND delivery_fee >= 0 "
         + "AND (open_time IS NULL OR close_time IS NULL OR close_time > open_time)")
 @Getter
 @Setter
@@ -65,9 +65,6 @@ public class Restaurant {
 
     @Column(name = "delivery_fee", nullable = false, precision = 10, scale = 2)
     private BigDecimal deliveryFee;
-
-    @Column(name = "minimum_order", nullable = false, precision = 10, scale = 2)
-    private BigDecimal minimumOrder;
 
     @Column(name = "estimated_delivery_min_minutes", nullable = false)
     private int estimatedDeliveryMinMinutes;

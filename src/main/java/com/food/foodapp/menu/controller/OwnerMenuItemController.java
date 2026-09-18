@@ -1,6 +1,5 @@
 package com.food.foodapp.menu.controller;
 
-import com.food.foodapp.common.response.DeletionResponse;
 import com.food.foodapp.menu.dto.MenuItemAvailabilityRequest;
 import com.food.foodapp.menu.dto.MenuItemCreateRequest;
 import com.food.foodapp.menu.dto.MenuItemUpdateRequest;
@@ -64,9 +63,9 @@ public class OwnerMenuItemController {
 
     /** DELETE /api/v1/owner/restaurants/{restaurantId}/items/{itemId} */
     @DeleteMapping("/{itemId}")
-    public ResponseEntity<DeletionResponse> delete(@PathVariable Long restaurantId, @PathVariable Long itemId) {
+    public ResponseEntity<Void> delete(@PathVariable Long restaurantId, @PathVariable Long itemId) {
         menuItemService.deleteItem(restaurantId, itemId);
-        return ResponseEntity.ok(DeletionResponse.ok());
+        return ResponseEntity.noContent().build();
     }
 
     /** PATCH /api/v1/owner/restaurants/{restaurantId}/items/{itemId}/availability */

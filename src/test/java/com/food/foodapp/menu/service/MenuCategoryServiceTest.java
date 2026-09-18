@@ -235,7 +235,6 @@ class MenuCategoryServiceTest {
         restaurant.setName("Test Restaurant");
         restaurant.setCuisine("إيطالي");
         restaurant.setDeliveryFee(BigDecimal.valueOf(10));
-        restaurant.setMinimumOrder(BigDecimal.valueOf(50));
         restaurant.setEstimatedDeliveryMinMinutes(20);
         restaurant.setEstimatedDeliveryMaxMinutes(30);
         restaurant.setApprovalStatus(RestaurantApprovalStatus.APPROVED);

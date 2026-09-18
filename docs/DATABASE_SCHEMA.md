@@ -56,7 +56,6 @@ erDiagram
         varchar name
         varchar approval_status "PENDING|APPROVED|REJECTED|SUSPENDED"
         numeric delivery_fee
-        numeric minimum_order
         time open_time
         time close_time
     }

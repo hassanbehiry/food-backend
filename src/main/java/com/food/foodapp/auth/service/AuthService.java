@@ -116,7 +116,6 @@ public class AuthService {
             restaurant.setOwner(user);
             restaurant.setApprovalStatus(RestaurantApprovalStatus.PENDING);
             restaurant.setDeliveryFee(BigDecimal.ZERO);
-            restaurant.setMinimumOrder(BigDecimal.ZERO);
             restaurant.setEstimatedDeliveryMinMinutes(30);
             restaurant.setEstimatedDeliveryMaxMinutes(60);
             restaurant.getCategories().add(category);

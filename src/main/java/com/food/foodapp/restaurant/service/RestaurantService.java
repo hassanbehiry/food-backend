@@ -193,9 +193,6 @@ public class RestaurantService {
         if (request.getDeliveryFee() != null) {
             restaurant.setDeliveryFee(request.getDeliveryFee());
         }
-        if (request.getMinimumOrder() != null) {
-            restaurant.setMinimumOrder(request.getMinimumOrder());
-        }
         if (request.getCategoryId() != null) {
             Category category = categoryRepository.findById(request.getCategoryId())
                     .orElseThrow(() -> new CategoryNotFoundException("Category not found: " + request.getCategoryId()));
