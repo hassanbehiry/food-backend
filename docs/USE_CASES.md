@@ -27,7 +27,7 @@ reset, favorites — see migrations `V8`, `V10`, `V11`, `V16`) are deliberately 
 | **Guest** | Anonymous visitor. | — |
 | **Customer** | User with `role = CUSTOMER`. | Self-registration (UC-03). |
 | **Restaurant Owner** | User with `role = OWNER`. Owns exactly one restaurant, created in `PENDING` state at registration. | Self-registration (UC-03), only while the admin allows restaurant registration. |
-| **Admin** | User with `role = ADMIN`. | Never via registration. The first admin is seeded at startup by `AdminAccountInitializer` from `app.admin.bootstrap.*` properties; further admins are promoted directly in the database. |
+| **Admin** | User with `role = ADMIN`. | Never via registration. A demo admin account is seeded by the `V2` migration; further admins are promoted directly in the database. |
 | **Authenticated User** | Abstract generalization of Customer, Owner and Admin, used for use cases every signed-in user shares. | — |
 
 There is **no courier actor**. Delivery is confirmed by either the customer or the owner; the

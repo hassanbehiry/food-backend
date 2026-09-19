@@ -20,8 +20,7 @@ import java.math.BigDecimal;
  * {@code supportEmail @NotBlank @Email} — so an admin who hydrates the form from {@code GET} and
  * saves without re-typing the email gets a 400. Seeding a valid default row removes that trap.
  * <p>
- * Idempotent: does nothing when the row already exists. Mirrors
- * {@link com.food.foodapp.auth.bootstrap.AdminAccountInitializer}.
+ * Idempotent: does nothing when the row already exists.
  */
 @Slf4j
 @Component

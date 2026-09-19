@@ -1,24 +1,32 @@
--- Seed data: platform-wide categories + a handful of demo restaurants/menus.
+-- Seed data: platform-wide categories, one flagship demo restaurant with a full menu, and
+-- three demo accounts (admin/owner/customer) to log in as immediately after provisioning.
 --
--- Source of truth for names/icons/order: the frontend's mock data layer at
--- foodhub-main/src/data/data.js (FH_DATA.categories / FH_DATA.restaurants / FH_DATA.menus),
--- so a freshly-provisioned database renders the same homepage/dashboard content the frontend
--- was built against, rather than an empty list.
+-- Categories: names/icons/order are still sourced from the frontend's mock data layer at
+-- foodhub-main/src/data/data.js (FH_DATA.categories), so a freshly-provisioned database's
+-- discovery chips match what the frontend was built against.
 --
--- Only columns that exist in V1 are populated here. categories.slug and restaurants.owner_id
--- are intentionally NOT seeded — those columns do not exist yet (planned for a later
--- migration) and this seed must not invent data for a column that isn't there.
+-- Restaurant/menu: a single "مطبخ وجبة" restaurant (purpose-built for this seed, not sourced
+-- from the frontend fixture) with a real multi-category menu, pre-approved and owned by the
+-- demo OWNER account below, so /api/v1/owner/** has something real to demo against on a fresh
+-- database without going through manual admin approval first.
 --
--- Every INSERT is guarded with "WHERE NOT EXISTS (SELECT 1 FROM <that table>)" so this
--- migration is a safe no-op against a database that already holds data in the target table
--- (an existing install, a shared test database, a re-point at a populated DB). It only ever
--- populates a table that is currently empty, so it can never collide with or overwrite a row
--- that is already there. A fresh/empty database gets the full data set.
+-- The categories/restaurants/restaurant_categories/menu_categories/menu_items INSERTs are each
+-- guarded with "WHERE NOT EXISTS (SELECT 1 FROM <that table>)" so this migration is a safe
+-- no-op against a database that already holds data in the target table (an existing install, a
+-- shared test database, a re-point at a populated DB). It only ever populates a table that is
+-- currently empty, so it can never collide with or overwrite a row that is already there.
 --
--- IDs are assigned explicitly so the restaurant_categories / menu_categories / menu_items
--- rows can reference them directly and this file reads the same way every time. Each identity
--- sequence is then bumped to at least the highest id present (GREATEST against its current
--- value, so it can never move backwards) to keep application-created rows off the seeded ids.
+-- The users and addresses INSERTs are the exception to that pattern: neither table is ever
+-- guaranteed empty (real registrations may already exist), so they guard per-row instead — on
+-- email for users, on customer_id for the demo customer's address — and never hardcode an id,
+-- letting the IDENTITY column auto-assign one so they can't collide with a real row. The three
+-- demo emails live on a wajba.com domain, kept out of the way of any real account.
+--
+-- IDs for categories/restaurants/menu_categories/menu_items are assigned explicitly so the
+-- restaurant_categories/menu_categories/menu_items rows can reference them directly and this
+-- file reads the same way every time. Each identity sequence is then bumped to at least the
+-- highest id present (GREATEST against its current value, so it can never move backwards) to
+-- keep application-created rows off the seeded ids.
 
 -- ──── Categories (homepage discovery chips) ────
 -- icon values are FontAwesome (free, solid-style) class tokens, matching what the
@@ -42,52 +50,62 @@ SELECT setval('public.categories_id_seq',
     GREATEST((SELECT COALESCE(MAX(id), 1) FROM public.categories),
              (SELECT last_value FROM public.categories_id_seq)));
 
--- ──── Restaurants ────
--- approval_status is APPROVED and is_open_for_orders mirrors the frontend fixture's
--- isOpen flag (restaurant 5 is seeded closed on purpose, matching the source fixture, so it
--- is correctly excluded from the customer-visible listing).
+-- ──── Demo accounts (admin / owner / customer) ────
+-- Passwords are pre-hashed with jBCrypt (org.mindrot.jbcrypt.BCrypt.hashpw + BCrypt.gensalt(),
+-- the same call PasswordEncoder.encode() makes) since a SQL migration cannot invoke the app's
+-- Java password encoder at run time. Each hash below was generated and independently
+-- re-verified with BCrypt.checkpw() before being embedded here.
+--
+--   admin@wajba.com    / WajbaAdmin@2026
+--   owner@wajba.com    / WajbaOwner@2026
+--   customer@wajba.com / WajbaCustomer@2026
+
+INSERT INTO public.users (name, email, password, role, status, created_at, updated_at)
+SELECT v.name, v.email, v.password, v.role, 'ACTIVE', now(), now()
+FROM (VALUES
+    ('مدير المنصة التجريبي', 'admin@wajba.com',
+        '$2a$10$kBNVIxlBC8DBss4JQn/p5e0Gnq54JhnfA0r7YanIZuJP30Y8spvJm', 'ADMIN'),
+    ('مالك مطبخ وجبة', 'owner@wajba.com',
+        '$2a$10$OwWFF2WnvM7AqRivNTI70O8YVkHXIp.w9EeCDQ3IPqux7gIh.p1He', 'OWNER'),
+    ('عميل وجبة التجريبي', 'customer@wajba.com',
+        '$2a$10$KDJP/ve7Ux5EgAJvKHG62OqlWyXa3SIQ00ssNAHG2A17MnI7Te4aa', 'CUSTOMER')
+) AS v(name, email, password, role)
+WHERE NOT EXISTS (SELECT 1 FROM public.users WHERE users.email = v.email);
+
+-- ──── Demo customer's saved address ────
+-- One seeded delivery address for the demo CUSTOMER account, so checkout has something to
+-- select without creating an address by hand first. Guarded per-customer rather than on the
+-- whole table being empty — same reasoning as the users insert above: addresses is never
+-- guaranteed empty, since a real customer may already have saved one.
+
+INSERT INTO public.addresses (customer_id, label, street, city, postal_code, is_default, created_at, updated_at)
+SELECT u.id, 'المنزل', 'شارع الأمير محمد بن عبدالعزيز، مبنى 12، شقة 4', 'الرياض', '12211', true, now(), now()
+FROM public.users u
+WHERE u.email = 'customer@wajba.com'
+  AND NOT EXISTS (SELECT 1 FROM public.addresses a WHERE a.customer_id = u.id);
+
+-- ──── Restaurant ────
+-- A single flagship demo restaurant, pre-approved. Only columns that exist in V1 are populated
+-- here — this includes minimum_order/rating_average/review_count/is_open_for_orders, which are
+-- still NOT NULL at this point in the migration sequence even though later migrations
+-- (V9/V11/V17) go on to drop them; leaving them out here would fail the insert, not just leave
+-- them unseeded. restaurants.owner_id, conversely, does NOT exist yet (it is added later by V6),
+-- so it cannot be set in this file — V6 links this restaurant to the demo OWNER account above
+-- once that column exists (see the backfill at the end of V6__add_restaurant_owner.sql), the
+-- same way V9 adjusts this same seeded row's hours once is_open_for_orders is replaced by
+-- open_time/close_time.
 
 INSERT INTO public.restaurants (
     id, name, cuisine, logo_url, cover_image_url,
     rating_average, review_count, delivery_fee, minimum_order,
     estimated_delivery_min_minutes, estimated_delivery_max_minutes,
-    is_open_for_orders, approval_status, created_at, updated_at
+    open_time, close_time, is_open_for_orders, approval_status, created_at, updated_at
 )
-SELECT v.id, v.name, v.cuisine, v.logo_url, v.cover_image_url,
-       v.rating_average, v.review_count, v.delivery_fee, v.minimum_order,
-       v.est_min, v.est_max, v.is_open, 'APPROVED', now(), now()
-FROM (VALUES
-    (1, 'بيلا نابولي للبيتزا', 'إيطالي · بيتزا',
-        'https://images.unsplash.com/photo-1513104890138-7c749659a591?auto=format&fit=crop&w=200&q=80',
-        'https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?auto=format&fit=crop&w=900&q=80',
-        4.80, 642, 12.50, 40.00, 25, 35, true),
-    (2, 'سموك هاوس للبرجر', 'أمريكي · برجر',
-        'https://images.unsplash.com/photo-1571997478779-2adcbbe9ab2f?auto=format&fit=crop&w=200&q=80',
-        'https://images.unsplash.com/photo-1571091718767-18b5b1457add?auto=format&fit=crop&w=900&q=80',
-        4.60, 418, 10.00, 30.00, 20, 30, true),
-    (3, 'ساكورا للسوشي', 'ياباني · سوشي',
-        'https://images.unsplash.com/photo-1611143669185-af224c5e3252?auto=format&fit=crop&w=200&q=80',
-        'https://images.unsplash.com/photo-1553621042-f6e147245754?auto=format&fit=crop&w=900&q=80',
-        4.90, 301, 17.50, 50.00, 30, 40, true),
-    (4, 'جرين بول للأكل الصحي', 'صحي · سلطات',
-        'https://images.unsplash.com/photo-1543353071-087092ec393a?auto=format&fit=crop&w=200&q=80',
-        'https://images.unsplash.com/photo-1512621776951-a57141f2eefd?auto=format&fit=crop&w=900&q=80',
-        4.50, 212, 7.50, 25.00, 15, 25, true),
-    (5, 'التنين الذهبي', 'صيني · آسيوي',
-        'https://images.unsplash.com/photo-1496116218417-1a781b1c416c?auto=format&fit=crop&w=200&q=80',
-        'https://images.unsplash.com/photo-1585032226651-759b368d7246?auto=format&fit=crop&w=900&q=80',
-        4.40, 356, 10.00, 30.00, 30, 45, false),
-    (6, 'سويت كرامبز للحلويات', 'حلويات · مخبوزات',
-        'https://images.unsplash.com/photo-1517433367423-c7e5b0f35086?auto=format&fit=crop&w=200&q=80',
-        'https://images.unsplash.com/photo-1551024601-bec78aea704b?auto=format&fit=crop&w=900&q=80',
-        4.90, 530, 10.00, 20.00, 20, 30, true),
-    (7, 'نادي صن رايز للفطور', 'فطور · كافيه',
-        'https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?auto=format&fit=crop&w=200&q=80',
-        'https://images.unsplash.com/photo-1533920379810-6bedac961555?auto=format&fit=crop&w=900&q=80',
-        4.60, 178, 7.50, 25.00, 15, 25, true)
-) AS v(id, name, cuisine, logo_url, cover_image_url,
-       rating_average, review_count, delivery_fee, minimum_order,
-       est_min, est_max, is_open)
+SELECT 1, 'مطبخ وجبة', 'عالمي · بيتزا وبرجر',
+       'https://images.unsplash.com/photo-1550547660-d9450f859349?auto=format&fit=crop&w=200&q=80',
+       'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?auto=format&fit=crop&w=900&q=80',
+       4.80, 642, 9.99, 30.00, 20, 30, '10:00:00', '23:00:00', true, 'APPROVED',
+       now(), now()
 WHERE NOT EXISTS (SELECT 1 FROM public.restaurants);
 
 SELECT setval('public.restaurants_id_seq',
@@ -95,23 +113,17 @@ SELECT setval('public.restaurants_id_seq',
              (SELECT last_value FROM public.restaurants_id_seq)));
 
 -- ──── Restaurant <-> category tags ────
+-- Tagged to the two platform categories its own menu tabs actually match (بيتزا, برجر).
 
 INSERT INTO public.restaurant_categories (restaurant_id, category_id)
 SELECT v.restaurant_id, v.category_id
 FROM (VALUES
-    (1, 1), -- بيلا نابولي للبيتزا -> بيتزا
-    (2, 2), -- سموك هاوس للبرجر -> برجر
-    (3, 3), -- ساكورا للسوشي -> سوشي
-    (3, 7), -- ساكورا للسوشي -> آسيوي
-    (4, 6), -- جرين بول للأكل الصحي -> أكل صحي
-    (5, 7), -- التنين الذهبي -> آسيوي
-    (6, 5), -- سويت كرامبز للحلويات -> حلويات
-    (7, 8)  -- نادي صن رايز للفطور -> فطور
+    (1, 1), -- مطبخ وجبة -> بيتزا
+    (1, 2)  -- مطبخ وجبة -> برجر
 ) AS v(restaurant_id, category_id)
 WHERE NOT EXISTS (SELECT 1 FROM public.restaurant_categories)
-  -- only when the restaurants above were actually seeded by this migration
-  AND EXISTS (SELECT 1 FROM public.restaurants
-              WHERE id = 1 AND name = 'بيلا نابولي للبيتزا')
+  -- only when the restaurant above was actually seeded by this migration
+  AND EXISTS (SELECT 1 FROM public.restaurants WHERE id = 1 AND name = 'مطبخ وجبة')
   AND EXISTS (SELECT 1 FROM public.categories WHERE id = v.category_id);
 
 -- ──── Menu categories (tabs) ────
@@ -119,21 +131,14 @@ WHERE NOT EXISTS (SELECT 1 FROM public.restaurant_categories)
 INSERT INTO public.menu_categories (id, restaurant_id, name, display_order, active, created_at, updated_at)
 SELECT v.id, v.restaurant_id, v.name, v.display_order, true, now(), now()
 FROM (VALUES
-    -- restaurant 1: بيلا نابولي للبيتزا
     (1, 1, 'بيتزا',           0),
-    (2, 1, 'باستا',           1),
+    (2, 1, 'برجر ومشويات',    1),
     (3, 1, 'أطباق جانبية',    2),
-    (4, 1, 'مشروبات',         3),
-    -- restaurant 2: سموك هاوس للبرجر
-    (5, 2, 'الأكثر طلبًا',     0),
-    (6, 2, 'أطباق رئيسية',    1),
-    (7, 2, 'أطباق جانبية',    2),
-    (8, 2, 'مشروبات',         3)
+    (4, 1, 'مشروبات',         3)
 ) AS v(id, restaurant_id, name, display_order)
 WHERE NOT EXISTS (SELECT 1 FROM public.menu_categories)
-  -- only when the restaurants above were actually seeded by this migration
-  AND EXISTS (SELECT 1 FROM public.restaurants
-              WHERE id = 1 AND name = 'بيلا نابولي للبيتزا');
+  -- only when the restaurant above was actually seeded by this migration
+  AND EXISTS (SELECT 1 FROM public.restaurants WHERE id = 1 AND name = 'مطبخ وجبة');
 
 SELECT setval('public.menu_categories_id_seq',
     GREATEST((SELECT COALESCE(MAX(id), 1) FROM public.menu_categories),
@@ -148,30 +153,30 @@ INSERT INTO public.menu_items (
 SELECT v.id, v.restaurant_id, v.category_id, v.name, v.description, v.price, v.image_url,
        v.display_order, true, now(), now()
 FROM (VALUES
-    -- restaurant 1: بيلا نابولي للبيتزا
+    -- بيتزا
     (1, 1, 1, 'مارجريتا كلاسيك', 'صلصة طماطم سان مارزانو، جبنة موزاريلا، ريحان طازج', 47.50,
         'https://images.unsplash.com/photo-1574071318508-1cdbab80d002?auto=format&fit=crop&w=400&q=80', 0),
     (2, 1, 1, 'كواترو فورماجي', 'أربعة أنواع جبن: موزاريلا، جورجونزولا، بارميزان، بروفولوني', 55.00,
-        'https://images.unsplash.com/photo-1593560708920-61b98ae243f7?auto=format&fit=crop&w=400&q=80', 1),
+        'https://images.unsplash.com/photo-1548369937-47519962c11a?auto=format&fit=crop&w=400&q=80', 1),
     (3, 1, 1, 'ديافولا الحارة', 'سلامي حار، فليفلة مجروشة، موزاريلا، طماطم', 57.50,
         'https://images.unsplash.com/photo-1571066811602-716837d681de?auto=format&fit=crop&w=400&q=80', 2),
-    (4, 1, 2, 'باستا كاربونارا', 'جوانشاله، صفار بيض، جبنة بيكورينو، فلفل أسود', 52.50,
-        'https://images.unsplash.com/photo-1612874742237-6526221588e3?auto=format&fit=crop&w=400&q=80', 0),
-    (5, 1, 3, 'فوكاتشا بالثوم', 'تُخبز يوميًا بإكليل الجبل وملح البحر', 22.50,
-        'https://images.unsplash.com/photo-1619985632461-f33748a05f44?auto=format&fit=crop&w=400&q=80', 0),
-    (6, 1, 4, 'سان بيليجرينو', 'مياه غازية 330 مل', 10.00,
-        'https://images.unsplash.com/photo-1622483767028-3f66f32aef97?auto=format&fit=crop&w=400&q=80', 0),
-    -- restaurant 2: سموك هاوس للبرجر
-    (7, 2, 5, 'طبق الشيف الخاص', 'تشكيلة مميزة من الشيف بمكونات موسمية مختارة بعناية', 60.00,
+    -- برجر ومشويات
+    (4, 1, 2, 'طبق الشيف الخاص', 'تشكيلة مميزة من الشيف بمكونات موسمية مختارة بعناية', 60.00,
         'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=400&q=80', 0),
-    (8, 2, 6, 'وعاء البيت الخاص', 'حصة كبيرة، تُقدم مع إضافة من اختيارك', 47.50,
-        'https://images.unsplash.com/photo-1567620905732-2d1ec7ab7445?auto=format&fit=crop&w=400&q=80', 0),
-    (9, 2, 6, 'تشكيلة مشاوي', 'تُشوى على الفحم مباشرة وتُقدم سريعًا وهي سخنة', 50.00,
-        'https://images.unsplash.com/photo-1504674900247-0877df9cc836?auto=format&fit=crop&w=400&q=80', 1),
-    (10, 2, 7, 'بطاطس مقرمشة', 'تُقطّع يدويًا وتُقلى مرتين مع ملح البحر', 17.50,
-        'https://images.unsplash.com/photo-1573080496219-bb080dd4f877?auto=format&fit=crop&w=400&q=80', 0),
-    (11, 2, 8, 'ليموناضة طازجة', 'معصورة على البارد وبدون أي سكر مضاف', 12.50,
-        'https://images.unsplash.com/photo-1621263764928-df1444c5e859?auto=format&fit=crop&w=400&q=80', 0)
+    (5, 1, 2, 'وعاء البيت الخاص', 'حصة كبيرة، تُقدم مع إضافة من اختيارك', 47.50,
+        'https://images.unsplash.com/photo-1567620905732-2d1ec7ab7445?auto=format&fit=crop&w=400&q=80', 1),
+    (6, 1, 2, 'تشكيلة مشاوي', 'تُشوى على الفحم مباشرة وتُقدم سريعًا وهي سخنة', 50.00,
+        'https://images.unsplash.com/photo-1504674900247-0877df9cc836?auto=format&fit=crop&w=400&q=80', 2),
+    -- أطباق جانبية
+    (7, 1, 3, 'فوكاتشا بالثوم', 'تُخبز يوميًا بإكليل الجبل وملح البحر', 22.50,
+        'https://images.unsplash.com/photo-1556008531-57e6eefc7be4?auto=format&fit=crop&w=400&q=80', 0),
+    (8, 1, 3, 'بطاطس مقرمشة', 'تُقطّع يدويًا وتُقلى مرتين مع ملح البحر', 17.50,
+        'https://images.unsplash.com/photo-1573080496219-bb080dd4f877?auto=format&fit=crop&w=400&q=80', 1),
+    -- مشروبات
+    (9, 1, 4, 'سان بيليجرينو', 'مياه غازية 330 مل', 10.00,
+        'https://images.unsplash.com/photo-1622483767028-3f66f32aef97?auto=format&fit=crop&w=400&q=80', 0),
+    (10, 1, 4, 'ليموناضة طازجة', 'معصورة على البارد وبدون أي سكر مضاف', 12.50,
+        'https://images.unsplash.com/photo-1621263764928-df1444c5e859?auto=format&fit=crop&w=400&q=80', 1)
 ) AS v(id, restaurant_id, category_id, name, description, price, image_url, display_order)
 WHERE NOT EXISTS (SELECT 1 FROM public.menu_items)
   AND EXISTS (SELECT 1 FROM public.menu_categories WHERE id = v.category_id);

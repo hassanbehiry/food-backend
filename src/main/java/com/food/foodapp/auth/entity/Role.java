@@ -7,8 +7,9 @@ package com.food.foodapp.auth.entity;
  * Spring Security authority {@code ROLE_<name>}.
  * <p>
  * {@code ADMIN} is the platform operator and is deliberately not obtainable through self-service
- * registration — see {@link com.food.foodapp.auth.service.AuthService#register} for the guard and
- * {@link com.food.foodapp.auth.bootstrap.AdminAccountInitializer} for how the first admin is seeded.
+ * registration — see {@link com.food.foodapp.auth.service.AuthService#register} for the guard.
+ * A demo {@code ADMIN} account is seeded by the {@code V2} migration; further admins are promoted
+ * directly in the database.
  */
 public enum Role {
     CUSTOMER,

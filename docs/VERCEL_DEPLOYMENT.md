@@ -54,7 +54,7 @@ Point the Vercel project at whatever branch your team promotes to production fro
 
 `compose.yaml` and local `application.properties` defaults are unchanged in behavior — every
 new property added for this task follows the existing `${VAR:default}` pattern already used
-by `jwt.secret`, `app.admin.bootstrap.*`, etc., so local dev needs zero new environment
+by `jwt.secret`, `app.platform-settings.*`, etc., so local dev needs zero new environment
 variables.
 
 ## Manual Vercel Configuration Required
@@ -101,7 +101,6 @@ one, and the task explicitly asks to prefer the simpler setup when a Dockerfile 
 | `PLATFORM_SUPPORT_EMAIL` | No | No | Pre-existing; seeds the platform settings row. |
 | `PLATFORM_DEFAULT_DELIVERY_FEE` | No | No | Pre-existing. |
 | `PLATFORM_DEFAULT_COMMISSION` | No | No | Pre-existing. |
-| `ADMIN_BOOTSTRAP_EMAIL` / `ADMIN_BOOTSTRAP_PASSWORD` / `ADMIN_BOOTSTRAP_NAME` | No | **Yes** if set | Pre-existing one-time admin seed. Leave both email and password unset unless you specifically want a bootstrap admin created on first boot. |
 
 "Recommended" for mail: if left unset, `LoggingPasswordResetMailer` is used in production too —
 password-reset links are written to application logs instead of emailed. That is a functional
@@ -229,5 +228,5 @@ request-driven container is not guaranteed to stay warm between requests.
 - Vercel's generic Docker/container deployment support is plan-gated and has evolved over time;
   confirm your Vercel plan supports running a persistent Dockerfile-based web server (as opposed
   to short-lived serverless functions) before relying on this setup.
-- Mail and admin-bootstrap secrets are optional by design (the app degrades to a logging mailer,
-  and skips admin seeding, when unset) — this is intentional, not an oversight.
+- Mail secrets are optional by design (the app degrades to a logging mailer when unset) — this
+  is intentional, not an oversight.

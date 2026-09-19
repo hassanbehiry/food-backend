@@ -53,8 +53,9 @@ public class AuthService {
      * <p>
      * Self-service registration can only ever create a {@code CUSTOMER} or an {@code OWNER}.
      * {@code ADMIN} (and any role added later) is rejected here so the public endpoint can never be
-     * used to mint a privileged account — admins are provisioned out of band, see
-     * {@link com.food.foodapp.auth.bootstrap.AdminAccountInitializer}.
+     * used to mint a privileged account — admins are provisioned out of band, either via the
+     * demo {@code ADMIN} account seeded by the {@code V2} migration or by promoting a row directly
+     * in the database.
      */
     @Transactional
     public AuthResponse register(RegisterRequest request) {
